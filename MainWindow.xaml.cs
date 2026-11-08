@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -29,8 +29,8 @@ public partial class MainWindow : Window
 
     // Cores do Spotify; as neutras dependem do tema da barra (claro/escuro)
     private static readonly Brush SpotifyGreen = new SolidColorBrush(Color.FromRgb(0x1E, 0xD7, 0x60));
-    private Brush Subdued = new SolidColorBrush(Color.FromRgb(0xB3, 0xB3, 0xB3));
-    private Brush DimWhite = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
+    private Brush Subdued = new SolidColorBrush(Color.FromRgb(0x9E, 0x9E, 0x9E));
+    private Brush DimWhite = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
     private Brush _progressFillNormal = Brushes.White;
     private bool? _lightTheme;
 
@@ -98,6 +98,8 @@ public partial class MainWindow : Window
     private double _dragStartLeft;
 
     private string _lastTrackKey = "";
+    private long _trackGeneration;
+    private bool _timelineRunning;
     private bool _artDirty = true;
     private bool _refreshing;
     private bool _volLoading;
@@ -865,11 +867,11 @@ public partial class MainWindow : Window
 
     private void RefreshAnchors(IntPtr tray)
     {
+        if (_closed) return;
         if ((DateTime.UtcNow - _lastAnchorQuery).TotalSeconds < 5)
             return;
-        // Watchdog: se uma query pendurou (UIA contra um Explorer moribundo), a
-        // flag não pode prender as âncoras para sempre — após 15s arranca outra
-        if (_anchorQueryRunning && (DateTime.UtcNow - _lastAnchorQuery).TotalSeconds < 15)
+        // Evitar acumular tarefas UIA se a query anterior ainda estiver a correr
+        if (_anchorQueryRunning)
             return;
 
         _anchorQueryRunning = true;
@@ -878,9 +880,12 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (_closed) return;
                 var (ok, widgetsRight, startLeft, taskButtonsRight) = TaskbarAnchors.Get(tray);
+                if (_closed) return;
                 lock (_anchorLock)
                 {
+                    if (_closed) return;
                     // A barra alvo mudou enquanto a query corria: estes valores
                     // são coordenadas do monitor errado — deitar fora
                     if (tray != _anchorsTray)
@@ -918,9 +923,12 @@ public partial class MainWindow : Window
     {
         if (_refreshing || _closed) return;
         _refreshing = true;
+        long generation = unchecked(++_trackGeneration);
         try
         {
-            bool processAlive = Process.GetProcessesByName("Spotify").Length > 0;
+            var procs = Process.GetProcessesByName("Spotify");
+            bool processAlive = procs.Length > 0;
+            foreach (var p in procs) p.Dispose();
 
             // As chamadas SMTC podem ficar penduradas para sempre numa sessão em
             // teardown (Spotify a fechar/reabrir) — sem timeout, a flag _refreshing
@@ -931,6 +939,7 @@ public partial class MainWindow : Window
                 try { track = await _media.GetTrackAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException) { }
             }
+            if (_closed || generation != _trackGeneration) return;
 
             // Nas mudanças de faixa, a sessão/título ficam vazios por umas centenas
             // de ms — manter o estado atual no ecrã e re-verificar já, em vez de
@@ -1040,6 +1049,7 @@ public partial class MainWindow : Window
                 var state = (Liked: (bool?)null, Shuffle: ShuffleMode.Unknown, Repeat: RepeatMode.Unknown, Fresh: false);
                 try { state = await Task.Run(() => _uia.GetState(track.Title)).WaitAsync(TimeSpan.FromSeconds(8)); }
                 catch (TimeoutException) { }
+                if (_closed || generation != _trackGeneration) return;
                 _lastStateFresh = state.Fresh;
                 // Grupo ainda da faixa anterior (zombie): não mostrar o tick antigo
                 _uiaState = (state.Fresh ? state.Liked : null, state.Shuffle, state.Repeat);
@@ -1085,6 +1095,7 @@ public partial class MainWindow : Window
                 byte[]? bytes = null;
                 try { bytes = await _media.GetThumbnailAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException) { }
+                if (_closed || generation != _trackGeneration) return;
                 BitmapImage? art = null;
                 if (bytes != null)
                 {
@@ -1092,6 +1103,7 @@ public partial class MainWindow : Window
                     // de faixa — não podem rebentar o refresh inteiro
                     try { art = ToBitmap(bytes); } catch { }
                 }
+                if (_closed || generation != _trackGeneration) return;
                 SetAlbumArt(art);
             }
         }
@@ -1209,9 +1221,13 @@ public partial class MainWindow : Window
     /// Fora da thread de UI e com timeout: o SMTC pode pendurar em sessões mortas.</summary>
     private async void RefreshTimeline()
     {
+        if (_closed || _timelineRunning) return;
+        _timelineRunning = true;
         (TimeSpan Position, TimeSpan Duration, bool IsPlaying, DateTime PositionAtUtc)? tlMaybe = null;
         try { tlMaybe = await Task.Run(() => _media.GetTimeline()).WaitAsync(TimeSpan.FromSeconds(3)); }
         catch (TimeoutException) { }
+        finally { _timelineRunning = false; }
+        if (_closed) return;
         if (tlMaybe is not { } tl) return;
         // Depois de um seek, snapshots ANTERIORES ao salto ainda chegam durante
         // uns segundos — aplicá-los fazia a barra recuar e voltar a saltar
@@ -1323,6 +1339,7 @@ public partial class MainWindow : Window
     private async Task QuickRecheckAsync()
     {
         await Task.Delay(350);
+        if (_closed) return;
         await RefreshTrackAsync();
     }
 
@@ -1338,10 +1355,10 @@ public partial class MainWindow : Window
         for (int i = 0; i < 12; i++) // máx. ~6 s
         {
             await Task.Delay(500);
-            if (token != _settleToken) return;
+            if (_closed || token != _settleToken) return;
             _uiaDirty = true;
             await RefreshTrackAsync();
-            if (_lastStateFresh) return;
+            if (_closed || token != _settleToken || _lastStateFresh) return;
         }
     }
 
@@ -1469,24 +1486,27 @@ public partial class MainWindow : Window
         if (_lightTheme == light) return;
         _lightTheme = light;
 
-        Subdued = new SolidColorBrush(light ? Color.FromRgb(0x48, 0x48, 0x48) : Color.FromRgb(0xB3, 0xB3, 0xB3));
-        DimWhite = new SolidColorBrush(light ? Color.FromArgb(0x66, 0x00, 0x00, 0x00) : Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
-        _progressFillNormal = light ? Brushes.Black : Brushes.White;
+        Subdued = new SolidColorBrush(light ? Color.FromRgb(0x5C, 0x5C, 0x5C) : Color.FromRgb(0x9E, 0x9E, 0x9E));
+        DimWhite = new SolidColorBrush(light ? Color.FromArgb(0x40, 0x00, 0x00, 0x00) : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
+        _progressFillNormal = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
 
-        TitleText.Foreground = light ? Brushes.Black : Brushes.White;
+        TitleText.Foreground = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
         ArtistText.Foreground = Subdued;
         LauncherText.Foreground = Subdued;
         PrevIcon.Fill = Subdued;
         NextIcon.Fill = Subdued;
         VolumeIcon.Fill = Subdued;
         ArtPlaceholder.Foreground = DimWhite;
-        ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x2E, 0x00, 0x00, 0x00) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+        ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
         if (!ProgressTrack.IsMouseOver)
             ProgressFill.Background = _progressFillNormal;
 
         // Botão play: círculo branco no escuro, preto no claro (como o Spotify)
-        PlayPauseButton.Background = light ? Brushes.Black : Brushes.White;
-        PlayPauseIcon.Fill = light ? Brushes.White : Brushes.Black;
+        PlayPauseButton.Background = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
+        PlayPauseIcon.Fill = light ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
+        VolumePopupIcon.Fill = Subdued;
+        VolumePopupBorder.Background = new SolidColorBrush(light ? Color.FromRgb(0xFB, 0xFB, 0xFB) : Color.FromRgb(0x24, 0x24, 0x24));
+        VolumePopupBorder.BorderBrush = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
 
         _marqueeKey = ""; // sem efeito no texto, mas força refresh coerente
         _ = RefreshTrackAsync();
@@ -2043,6 +2063,8 @@ public partial class MainWindow : Window
         _closed = true; // trava a continuação do OnLoaded se ainda estiver no await
         _positionTimer.Stop();
         _trackTimer.Stop();
+        _volPopupWatchdog?.Stop();
+        _opacitySaveTimer?.Stop();
         CancelRide(); // o tick do ride não pode continuar num hwnd morto
         if (_mediaChanged != null) _media.Changed -= _mediaChanged;
         if (_mediaTimeline != null) _media.TimelineChanged -= _mediaTimeline;

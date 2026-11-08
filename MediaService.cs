@@ -16,6 +16,11 @@ public sealed class MediaService
 {
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private GlobalSystemMediaTransportControlsSession? _session;
+    private readonly CancellationTokenSource _initCts = new();
+    private bool _disposed;
+    private readonly object _pickLock = new();
+
+    public bool IsDisposed => _disposed;
 
     /// <summary>Disparado (em thread de background) quando a faixa ou o estado mudam.</summary>
     public event Action? Changed;
@@ -26,11 +31,13 @@ public sealed class MediaService
 
     public async Task InitializeAsync()
     {
+        var token = _initCts.Token;
         // No arranque com o Windows o WinRT pode ainda não estar pronto — uma
         // falha transitória aqui deixava o widget sem faixa a sessão INTEIRA.
         // Insistir com recuo (4s→64s, ~2 min) antes de desistir de vez.
         for (int attempt = 0; ; attempt++)
         {
+            if (_disposed || token.IsCancellationRequested) return;
             try
             {
                 _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
@@ -45,14 +52,31 @@ public sealed class MediaService
                     Diag.Once("smtc-init", "Media session API unavailable (this is why nothing shows as playing): " + ex.Message);
                     return;
                 }
-                await Task.Delay(TimeSpan.FromSeconds(4 << attempt));
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(4 << attempt), token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
         }
-        _manager.SessionsChanged += (_, _) => PickSession();
-        PickSession();
+
+        if (_disposed || token.IsCancellationRequested) return;
+
+        if (_manager != null)
+        {
+            _manager.SessionsChanged += OnSessionsChanged;
+            PickSession();
+        }
     }
 
-    private readonly object _pickLock = new();
+    private void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
+    {
+        if (_disposed) return;
+        PickSession();
+    }
 
     /// <summary>Dessubscreve tudo — sem isto, uma janela fechada ficava presa
     /// na memória pelos eventos WinRT e continuava a processar sessões.</summary>
@@ -60,6 +84,25 @@ public sealed class MediaService
     {
         lock (_pickLock)
         {
+            if (_disposed) return;
+            _disposed = true;
+
+            try
+            {
+                _initCts.Cancel();
+                _initCts.Dispose();
+            }
+            catch { }
+
+            if (_manager != null)
+            {
+                try
+                {
+                    _manager.SessionsChanged -= OnSessionsChanged;
+                }
+                catch { }
+            }
+
             var old = _session;
             _session = null;
             if (old != null)
@@ -72,12 +115,15 @@ public sealed class MediaService
                 }
                 catch { }
             }
+
+            Changed = null;
+            TimelineChanged = null;
         }
     }
 
     private void PickSession()
     {
-        if (_manager == null) return;
+        if (_disposed || _manager == null) return;
 
         // Apenas sessões do Spotify — sem fallback para outras apps (Chrome, etc.),
         // senão o widget mostra media de outros programas quando o Spotify fecha.
@@ -111,6 +157,8 @@ public sealed class MediaService
         // ou deixavam handlers presos numa sessão morta
         lock (_pickLock)
         {
+            if (_disposed) return;
+
             var old = _session;
             if (ReferenceEquals(old, chosen))
             {
@@ -140,14 +188,20 @@ public sealed class MediaService
         Changed?.Invoke();
     }
 
-    private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args) =>
-        Changed?.Invoke();
+    private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
+    {
+        if (!_disposed) Changed?.Invoke();
+    }
 
-    private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args) =>
-        Changed?.Invoke();
+    private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args)
+    {
+        if (!_disposed) Changed?.Invoke();
+    }
 
-    private void OnTimelineChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args) =>
-        TimelineChanged?.Invoke();
+    private void OnTimelineChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args)
+    {
+        if (!_disposed) TimelineChanged?.Invoke();
+    }
 
     /// <summary>Leitura rápida da timeline (sem propriedades da faixa nem capa).</summary>
     public (TimeSpan Position, TimeSpan Duration, bool IsPlaying, DateTime PositionAtUtc)? GetTimeline()

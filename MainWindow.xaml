@@ -6,34 +6,44 @@
         Topmost="True" ShowInTaskbar="False" ShowActivated="False"
         ResizeMode="NoResize" SizeToContent="WidthAndHeight"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
-        TextOptions.TextFormattingMode="Display">
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        FontFamily="Segoe UI Variable Text, Segoe UI, -apple-system, sans-serif">
 
     <Window.Resources>
-        <!-- Botão de ícone estilo Spotify: sem fundo, o ícone amplia no hover -->
+        <!-- Botão de ícone estilo Fluent: raio arredondado, destaque sutil no hover e resposta tátil -->
         <Style x:Key="IconButton" TargetType="Button">
             <Setter Property="Width" Value="26"/>
             <Setter Property="Height" Value="26"/>
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Grid Background="Transparent">
+                        <Border x:Name="buttonBg" Background="{TemplateBinding Background}" CornerRadius="13"
+                                Width="26" Height="26">
                             <ContentPresenter x:Name="content" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              RenderTransformOrigin="0.5,0.5"/>
-                        </Grid>
+                                              RenderTransformOrigin="0.5,0.5">
+                                <ContentPresenter.RenderTransform>
+                                    <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
+                                </ContentPresenter.RenderTransform>
+                            </ContentPresenter>
+                        </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="buttonBg" Property="Background" Value="#15FFFFFF"/>
                                 <Setter TargetName="content" Property="RenderTransform">
                                     <Setter.Value>
-                                        <ScaleTransform ScaleX="1.12" ScaleY="1.12"/>
+                                        <ScaleTransform ScaleX="1.06" ScaleY="1.06"/>
                                     </Setter.Value>
                                 </Setter>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="buttonBg" Property="Background" Value="#25FFFFFF"/>
                                 <Setter TargetName="content" Property="RenderTransform">
                                     <Setter.Value>
-                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                        <ScaleTransform ScaleX="0.94" ScaleY="0.94"/>
                                     </Setter.Value>
                                 </Setter>
                             </Trigger>
@@ -43,7 +53,7 @@
             </Setter>
         </Style>
 
-        <!-- Botão redondo de play/pausa: círculo branco que amplia no hover, como no Spotify -->
+        <!-- Botão redondo de play/pausa: destaque Fluent com sombra sutil e animação responsiva -->
         <Style x:Key="PlayButton" TargetType="Button">
             <Setter Property="Background" Value="White"/>
             <Setter Property="Width" Value="30"/>
@@ -55,6 +65,9 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="bg" Background="{TemplateBinding Background}" CornerRadius="15"
                                 Width="30" Height="30" RenderTransformOrigin="0.5,0.5">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="8" ShadowDepth="1.5" Direction="270" Opacity="0.18" Color="#000000"/>
+                            </Border.Effect>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -64,13 +77,15 @@
                                         <ScaleTransform ScaleX="1.06" ScaleY="1.06"/>
                                     </Setter.Value>
                                 </Setter>
+                                <Setter TargetName="bg" Property="Opacity" Value="0.92"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="bg" Property="RenderTransform">
                                     <Setter.Value>
-                                        <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                                        <ScaleTransform ScaleX="0.94" ScaleY="0.94"/>
                                     </Setter.Value>
                                 </Setter>
+                                <Setter TargetName="bg" Property="Opacity" Value="0.80"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -78,18 +93,19 @@
             </Setter>
         </Style>
 
-        <!-- Menu de contexto estilo Spotify: escuro, arredondado, com sombra -->
+        <!-- Menu de contexto estilo Windows 11 Fluent: cantos arredondados, sombra difusa e destaque suave -->
         <Style TargetType="ContextMenu">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Foreground" Value="#EDEDED"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ContextMenu">
-                        <Border Margin="10" Background="#2C2C2C" CornerRadius="8" Padding="5"
-                                BorderBrush="#2EFFFFFF" BorderThickness="1">
+                        <Border Margin="10" Background="#242424" CornerRadius="8" Padding="4,5"
+                                BorderBrush="#1FFFFFFF" BorderThickness="1">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.55"/>
+                                <DropShadowEffect BlurRadius="22" ShadowDepth="4" Direction="270" Opacity="0.45" Color="#000000"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True"
                                         KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -101,11 +117,13 @@
 
         <Style TargetType="MenuItem">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Foreground" Value="#EDEDED"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="bg" CornerRadius="5" Background="Transparent" Padding="9,7">
+                        <Border x:Name="bg" CornerRadius="5" Background="Transparent" Padding="10,6" Margin="1">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="22"/>
@@ -113,24 +131,24 @@
                                     <ColumnDefinition Width="14"/>
                                 </Grid.ColumnDefinitions>
                                 <Path x:Name="check" Grid.Column="0" Data="M1.5,6 L5,9.5 L12,2"
-                                      Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round"
+                                      Stroke="#1ED760" StrokeThickness="2" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Width="13" Height="12" Stretch="Uniform"
+                                      Width="12" Height="11" Stretch="Uniform"
                                       VerticalAlignment="Center" Visibility="Hidden"/>
                                 <ContentPresenter Grid.Column="1" ContentSource="Header"
                                                   VerticalAlignment="Center" RecognizesAccessKey="True"/>
                                 <Path x:Name="arrow" Grid.Column="2" Data="M1,1 L5,5 L1,9"
-                                      Stroke="#B3B3B3" StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                      Stroke="#8A8A8A" StrokeThickness="1.5" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round"
                                       VerticalAlignment="Center" HorizontalAlignment="Right"
                                       Visibility="Collapsed"/>
                                 <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-4"
-                                       VerticalOffset="-8" IsOpen="{TemplateBinding IsSubmenuOpen}"
+                                       VerticalOffset="-6" IsOpen="{TemplateBinding IsSubmenuOpen}"
                                        AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                                    <Border Margin="10" Background="#2C2C2C" CornerRadius="8" Padding="5"
-                                            BorderBrush="#2EFFFFFF" BorderThickness="1">
+                                    <Border Margin="10" Background="#242424" CornerRadius="8" Padding="4,5"
+                                            BorderBrush="#1FFFFFFF" BorderThickness="1">
                                         <Border.Effect>
-                                            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.55"/>
+                                            <DropShadowEffect BlurRadius="22" ShadowDepth="4" Direction="270" Opacity="0.45" Color="#000000"/>
                                         </Border.Effect>
                                         <StackPanel IsItemsHost="True"
                                                     KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -140,10 +158,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="#383838"/>
+                                <Setter TargetName="bg" Property="Background" Value="#17FFFFFF"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsSubmenuOpen" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="#383838"/>
+                                <Setter TargetName="bg" Property="Background" Value="#17FFFFFF"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="check" Property="Visibility" Value="Visible"/>
@@ -152,7 +171,7 @@
                                 <Setter TargetName="arrow" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="#6A6A6A"/>
+                                <Setter Property="Foreground" Value="#555555"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -165,13 +184,13 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Separator">
-                        <Rectangle Height="1" Fill="#3F3F3F" Margin="6,4"/>
+                        <Rectangle Height="1" Fill="#1FFFFFFF" Margin="6,4"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Slider estilo Spotify: pista fina, preenchimento verde, bolinha branca -->
+        <!-- Slider estilo Windows 11 Fluent: trilha suave, preenchimento verde, thumb refinado -->
         <Style x:Key="SpotifySlider" TargetType="Slider">
             <Setter Property="Height" Value="16"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -180,7 +199,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
                         <Grid VerticalAlignment="Center">
-                            <Border Height="4" CornerRadius="2" Background="#5E5E5E"/>
+                            <Border Height="4" CornerRadius="2" Background="#44FFFFFF"/>
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton IsTabStop="False" Focusable="False" Command="Slider.DecreaseLarge">
@@ -204,7 +223,11 @@
                                     <Thumb Width="12" Height="12" Focusable="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="White" Width="12" Height="12"/>
+                                                <Ellipse Fill="White" Width="12" Height="12">
+                                                    <Ellipse.Effect>
+                                                        <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.25" Color="#000000"/>
+                                                    </Ellipse.Effect>
+                                                </Ellipse>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -217,12 +240,22 @@
         </Style>
     </Window.Resources>
 
-    <!-- Fundo quase transparente (#01000000) para o rato ser detetado (menu/mover) -->
-    <Border x:Name="Root" Background="#01000000" CornerRadius="8" Padding="8,2,8,0" Cursor="Hand"
+    <!-- Fundo quase transparente (#01000000) para o rato ser detetado (menu/mover) com realce suave no hover -->
+    <Border x:Name="Root" CornerRadius="6" Padding="6,2,6,1" Cursor="Hand"
             MouseLeftButtonDown="Root_MouseLeftButtonDown"
             MouseMove="Root_MouseMove"
             MouseLeftButtonUp="Root_MouseLeftButtonUp"
             ContextMenuOpening="Root_ContextMenuOpening">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="Background" Value="#01000000"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="#0DFFFFFF"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
         <Border.ContextMenu>
             <ContextMenu Closed="ContextMenu_Closed">
                 <MenuItem x:Name="MoveMenu" Header="Mover widget" IsCheckable="True" Click="MoveMode_Click"
@@ -286,26 +319,28 @@
                         Visibility="Collapsed" ToolTip="Abrir o Spotify">
                 <Path Width="20" Height="20" Stretch="Uniform" Fill="#1ED760" VerticalAlignment="Center"
                       Data="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.669 11.538a.498.498 0 0 1-.686.165c-1.879-1.147-4.243-1.407-7.028-.77a.499.499 0 0 1-.222-.973c3.048-.696 5.662-.397 7.77.892a.5.5 0 0 1 .166.686zm.979-2.178a.624.624 0 0 1-.858.205c-2.15-1.321-5.428-1.704-7.972-.932a.625.625 0 0 1-.362-1.194c2.905-.881 6.517-.454 8.986 1.063a.624.624 0 0 1 .206.858zm.084-2.268C10.154 5.56 5.9 5.419 3.438 6.166a.748.748 0 1 1-.434-1.432c2.825-.857 7.523-.692 10.492 1.07a.747.747 0 1 1-.764 1.288z"/>
-                <TextBlock x:Name="LauncherText" Text="Abrir Spotify" Foreground="#B3B3B3" FontSize="12" FontWeight="SemiBold"
+                <TextBlock x:Name="LauncherText" Text="Abrir Spotify" Foreground="#9E9E9E"
+                           FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="SemiBold"
                            Margin="8,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
 
             <StackPanel x:Name="ContentPanel" Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
 
-                <!-- Capa do álbum -->
-                <Border Width="34" Height="34" CornerRadius="4" Background="#22FFFFFF" VerticalAlignment="Center">
+                <!-- Capa do álbum estilo Windows 11 com cantos arredondados e borda sutil -->
+                <Border Width="34" Height="34" CornerRadius="6" Background="#18FFFFFF" VerticalAlignment="Center"
+                        ClipToBounds="True" BorderBrush="#14FFFFFF" BorderThickness="1">
                     <Grid>
                         <TextBlock x:Name="ArtPlaceholder" Text="&#xE93C;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                   FontSize="14" Foreground="#88FFFFFF"
+                                   FontSize="15" Foreground="#77FFFFFF"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <Border x:Name="ArtImage" CornerRadius="4" Visibility="Collapsed">
+                        <Border x:Name="ArtImage" CornerRadius="5" Visibility="Collapsed">
                             <Border.Background>
                                 <ImageBrush x:Name="ArtBrush" Stretch="UniformToFill"/>
                             </Border.Background>
                         </Border>
                         <!-- Camada de cima: a nova capa esbate para dentro por
                              cima da atual (crossfade), depois passa a ser a base -->
-                        <Border x:Name="ArtImageTop" CornerRadius="4" Opacity="0" Visibility="Collapsed">
+                        <Border x:Name="ArtImageTop" CornerRadius="5" Opacity="0" Visibility="Collapsed">
                             <Border.Background>
                                 <ImageBrush x:Name="ArtBrushTop" Stretch="UniformToFill"/>
                             </Border.Background>
@@ -313,13 +348,14 @@
                     </Grid>
                 </Border>
 
-                <!-- Título e artista (cores do Spotify: branco / #B3B3B3) -->
+                <!-- Título e artista estilo Windows 11 Fluent -->
                 <StackPanel x:Name="TextStack" VerticalAlignment="Center" Margin="9,0,6,0" Width="150">
                     <!-- Canvas: mede o filho com espaço infinito, por isso o título
                          renderiza SEMPRE completo (a Grid cortava-o à largura da
                          célula e o marquee deslizava um texto já truncado) -->
-                    <Canvas x:Name="TitleClip" ClipToBounds="True" Height="16">
+                    <Canvas x:Name="TitleClip" ClipToBounds="True" Height="17">
                         <TextBlock x:Name="TitleText" Text="Spotify" Foreground="White"
+                                   FontFamily="Segoe UI Variable Text, Segoe UI"
                                    FontWeight="SemiBold" FontSize="12"
                                    Canvas.Left="0" Canvas.Top="0">
                             <TextBlock.RenderTransform>
@@ -327,15 +363,16 @@
                             </TextBlock.RenderTransform>
                         </TextBlock>
                     </Canvas>
-                    <TextBlock x:Name="ArtistText" Text="nada a tocar" Foreground="#B3B3B3"
-                               FontSize="11" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="ArtistText" Text="nada a tocar" Foreground="#9E9E9E"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
+                               FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                 </StackPanel>
 
                 <!-- Favoritos: ⊕ cinzento / ✓ verde em círculo, ícones do Spotify -->
                 <Button x:Name="LikeButton" Style="{StaticResource IconButton}"
                         Margin="0,0,2,0" VerticalAlignment="Center" Click="Like_Click"
                         ToolTip="Adicionar aos favoritos do Spotify">
-                    <Path x:Name="LikeIcon" Width="14" Height="14" Stretch="Uniform" Fill="#B3B3B3"
+                    <Path x:Name="LikeIcon" Width="14" Height="14" Stretch="Uniform" Fill="#A0A0A0"
                           Data="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8z M11.75 8a.75.75 0 0 1-.75.75H8.75V11a.75.75 0 0 1-1.5 0V8.75H5a.75.75 0 0 1 0-1.5h2.25V5a.75.75 0 0 1 1.5 0v2.25H11a.75.75 0 0 1 .75.75z"/>
                 </Button>
 
@@ -344,7 +381,7 @@
                         Margin="0,0,2,0" VerticalAlignment="Center" Click="Shuffle_Click"
                         ToolTip="Modo aleatório">
                     <Grid Width="20" Height="20">
-                        <Path x:Name="ShuffleIcon" Width="14" Height="14" Stretch="Uniform" Fill="#B3B3B3"
+                        <Path x:Name="ShuffleIcon" Width="14" Height="14" Stretch="Uniform" Fill="#A0A0A0"
                               HorizontalAlignment="Center" VerticalAlignment="Center"
                               Data="M13.151.922a.75.75 0 1 0-1.06 1.06L13.109 3H11.16a3.75 3.75 0 0 0-2.873 1.34l-6.173 7.356a2.25 2.25 0 0 1-1.724.804H0v1.5h.391a3.75 3.75 0 0 0 2.873-1.34l6.173-7.356a2.25 2.25 0 0 1 1.724-.804h1.947l-1.017 1.018a.75.75 0 0 0 1.06 1.06L15.98 3.75 13.151.922zM.391 3.5H0V2h.391c1.109 0 2.16.49 2.873 1.34L4.89 5.277l-.979 1.167-1.796-2.14A2.25 2.25 0 0 0 .391 3.5zm7.5 7.223.98-1.167.957 1.14a2.25 2.25 0 0 0 1.724.804h1.947l-1.017-1.018a.75.75 0 1 1 1.06-1.06l2.829 2.828-2.829 2.828a.75.75 0 1 1-1.06-1.06L13.109 13H11.16a3.75 3.75 0 0 1-2.873-1.34l-.896-1.067z"/>
                         <Path x:Name="ShuffleSmartStar" Width="7" Height="7" Stretch="Uniform" Fill="#1ED760"
@@ -357,21 +394,21 @@
                     </Grid>
                 </Button>
 
-                <!-- Anterior / play-pausa / seguinte: ícones do Spotify -->
+                <!-- Anterior / play-pausa / seguinte: ícones Fluent -->
                 <Button x:Name="PrevButton" Style="{StaticResource IconButton}"
                         Margin="0,0,2,0" VerticalAlignment="Center" Click="Prev_Click" ToolTip="Anterior">
-                    <Path x:Name="PrevIcon" Width="13" Height="13" Stretch="Uniform" Fill="#B3B3B3"
+                    <Path x:Name="PrevIcon" Width="13" Height="13" Stretch="Uniform" Fill="#A0A0A0"
                           Data="M3.3 1a.7.7 0 0 1 .7.7v5.15l9.95-5.744a.7.7 0 0 1 1.05.606v12.575a.7.7 0 0 1-1.05.607L4 9.149V13.3a.7.7 0 0 1-.7.7H1.7a.7.7 0 0 1-.7-.7V1.7a.7.7 0 0 1 .7-.7h1.6z"/>
                 </Button>
                 <Button x:Name="PlayPauseButton" Style="{StaticResource PlayButton}"
                         Margin="2,0" VerticalAlignment="Center" Click="PlayPause_Click" ToolTip="Reproduzir/Pausar">
-                    <Path x:Name="PlayPauseIcon" Width="12" Height="12" Stretch="Uniform" Fill="Black"
+                    <Path x:Name="PlayPauseIcon" Width="12" Height="12" Stretch="Uniform" Fill="#1A1A1A"
                           Margin="1.5,0,0,0"
                           Data="M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288V1.713z"/>
                 </Button>
                 <Button x:Name="NextButton" Style="{StaticResource IconButton}"
                         Margin="2,0,0,0" VerticalAlignment="Center" Click="Next_Click" ToolTip="Seguinte">
-                    <Path x:Name="NextIcon" Width="13" Height="13" Stretch="Uniform" Fill="#B3B3B3"
+                    <Path x:Name="NextIcon" Width="13" Height="13" Stretch="Uniform" Fill="#A0A0A0"
                           Data="M12.7 1a.7.7 0 0 0-.7.7v5.15L2.05 1.106A.7.7 0 0 0 1 1.712v12.575a.7.7 0 0 0 1.05.607L12 9.149V13.3a.7.7 0 0 0 .7.7h1.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7h-1.6z"/>
                 </Button>
 
@@ -380,7 +417,7 @@
                         Margin="2,0,0,0" VerticalAlignment="Center" Click="Repeat_Click"
                         ToolTip="Repetição">
                     <Grid Width="20" Height="20">
-                        <Path x:Name="RepeatIcon" Width="14" Height="14" Stretch="Uniform" Fill="#B3B3B3"
+                        <Path x:Name="RepeatIcon" Width="14" Height="14" Stretch="Uniform" Fill="#A0A0A0"
                               HorizontalAlignment="Center" VerticalAlignment="Center"
                               Data="M0 4.75A3.75 3.75 0 0 1 3.75 1h8.5A3.75 3.75 0 0 1 16 4.75v5a3.75 3.75 0 0 1-3.75 3.75H9.81l1.018 1.018a.75.75 0 1 1-1.06 1.06L6.939 12.75l2.829-2.828a.75.75 0 1 1 1.06 1.06L9.811 12h2.439a2.25 2.25 0 0 0 2.25-2.25v-5a2.25 2.25 0 0 0-2.25-2.25h-8.5A2.25 2.25 0 0 0 1.5 4.75v5A2.25 2.25 0 0 0 3.75 12H5v1.5H3.75A3.75 3.75 0 0 1 0 9.75v-5z"/>
                         <TextBlock x:Name="RepeatOneBadge" Text="1" FontSize="8" FontWeight="Bold"
@@ -396,28 +433,32 @@
                 <Button x:Name="VolumeButton" Style="{StaticResource IconButton}"
                         Margin="2,0,0,0" VerticalAlignment="Center" Click="Volume_Click"
                         MouseWheel="Volume_MouseWheel" ToolTip="Volume do Spotify">
-                    <Path x:Name="VolumeIcon" Width="14" Height="14" Stretch="Uniform" Fill="#B3B3B3"
+                    <Path x:Name="VolumeIcon" Width="14" Height="14" Stretch="Uniform" Fill="#A0A0A0"
                           Data="M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.642 3.642 0 0 1-1.33-4.967 3.639 3.639 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.139 2.139 0 0 0 0 3.7l5.8 3.35V2.8l-5.8 3.35zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88z M11.5 13.614a5.752 5.752 0 0 0 0-11.228v1.55a4.252 4.252 0 0 1 0 8.127v1.55z"/>
                 </Button>
             </StackPanel>
 
-            <!-- Barra de progresso da música (clique para saltar) -->
-            <Border x:Name="ProgressTrack" Grid.Row="1" Height="3" CornerRadius="1.5"
-                    Background="#33FFFFFF" Margin="1,2,1,3" Cursor="Hand"
+            <!-- Barra de progresso da música estilo Fluent (clique para saltar) -->
+            <Border x:Name="ProgressTrack" Grid.Row="1" Height="2.5" CornerRadius="1.25"
+                    Background="#24FFFFFF" Margin="1,2,1,2" Cursor="Hand"
                     MouseLeftButtonDown="Progress_MouseLeftButtonDown"
                     MouseEnter="Progress_MouseEnter" MouseLeave="Progress_MouseLeave">
-                <Border x:Name="ProgressFill" CornerRadius="1.5" Background="White"
+                <Border x:Name="ProgressFill" CornerRadius="1.25" Background="White"
                         HorizontalAlignment="Left" Width="0"/>
             </Border>
 
-            <!-- Slider de volume horizontal estilo Spotify -->
+            <!-- Slider de volume horizontal estilo Windows 11 Fluent Flyout -->
             <Popup x:Name="VolumePopup" PlacementTarget="{Binding ElementName=VolumeButton}"
                    Placement="Top" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="True"
                    Closed="VolumePopup_Closed">
-                <Border x:Name="VolumePopupBorder" Background="#282828" CornerRadius="6" Padding="12,10" Margin="6"
+                <Border x:Name="VolumePopupBorder" Background="#242424" CornerRadius="8" Padding="12,9" Margin="8"
+                        BorderBrush="#1FFFFFFF" BorderThickness="1"
                         MouseLeave="VolumePopup_MouseLeave" MouseWheel="Volume_MouseWheel">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="4" Direction="270" Opacity="0.45" Color="#000000"/>
+                    </Border.Effect>
                     <StackPanel Orientation="Horizontal">
-                        <Path Width="13" Height="13" Stretch="Uniform" Fill="#B3B3B3"
+                        <Path x:Name="VolumePopupIcon" Width="13" Height="13" Stretch="Uniform" Fill="#A0A0A0"
                               Margin="0,0,10,0" VerticalAlignment="Center"
                               Data="M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.642 3.642 0 0 1-1.33-4.967 3.639 3.639 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.139 2.139 0 0 0 0 3.7l5.8 3.35V2.8l-5.8 3.35zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88z M11.5 13.614a5.752 5.752 0 0 0 0-11.228v1.55a4.252 4.252 0 0 1 0 8.127v1.55z"/>
                         <Slider x:Name="VolumeSlider" Style="{StaticResource SpotifySlider}" Width="100"
