@@ -1,10 +1,34 @@
 # Now Playing Taskbar Widget — Antigravity teknik devir
 
-Hazırlık tarihi: **8 Kasım 2026 (Europe/Istanbul)**. Bu belge kaynak kodun incelenmesine, yerel derlemelere ve sınırlı bir başlatma denemesine dayanır. Bu aşamada ürün kodu, arayüz, proje ayarları veya mevcut işlevler değiştirilmedi; aşağıdaki çözümler **öneridir**, uygulanmış değildir.
+## SimpMusic desteği ve canlı doğrulama — 12 Kasım 2026
+
+Kullanıcı onayıyla Store SimpMusic (`Simpmusic_ejp2bhxmz1qq6!Simpmusic`) desteği eklendi. Spotify seçimi öncelikli kalır. SimpMusic başlık/sanatçı/kapak ve taşıma için SMTC, uygulama sesi için kendi CoreAudio oturumunu kullanır. Shuffle/Repeat görünürlüğü destek bayrağı ve okunabilir duruma, timeline görünürlüğü geçerli süreye bağlıdır. Favori Spotify'a özgüdür. Oturum değişiminde bekleyen metadata, kapak ve ses güncellemeleri eski oturuma göre uygulanmaz.
+
+Gerçek Windows 11 görev çubuğunda görünür 298×41 widget, taskbar owner ve `WS_EX_NOACTIVATE` doğrulandı. Gerçek SimpMusic oturumunda play/pause, next/previous ve %100 → %95 → %100 ses testi geçti. Son Release süreç yeniden başlatması geçti. Debug/Release 0 hata ve `NU1900`, xUnit **22/22**. Canlı popup tıklamaları, ekran görüntüsü, karma DPI ve fullscreen/auto-hide açık. SimpMusic test edilen oturumda süre/konum ve shuffle/repeat durumu yayımlamadı. Ölçümler, kanıt yolları ve ilk turdan sonraki kapsam değişikliği [Phase 2.6 raporunda](PHASE26_VALIDATION.md).
+
+## Güncel doğrulama — Phase 2.6 (9 Kasım 2026)
+
+[Phase 2.6 canlı doğrulama kaydı](PHASE26_VALIDATION.md) oluşturuldu. Debug/Release 0 uyarı / 0 hata, xUnit **17/17 geçti**. Gerçek Windows 10.0.26300 oturumunda süreç ve masaüstü envanteri Spotify/widget'ın kapalı olduğunu doğruladı. Spotify kapalıyken başlatma için onay alınmadığından ürün/medya başlatılmadı; gerçek görev çubuğu kabulü **tamamlanamadı**. İzole gerçek HWND popup testi yeniden geçti; canlı taskbar/Spotify testi olarak raporlanmadı. Canlı ekran görüntüsü ve playing/paused/expanded performans ölçümü yok. Yeni özellik, görsel değişiklik veya ürün düzeltmesi yapılmadı; önceki değişiklikler korundu. Kullanıcının görev sonu normal bilgisayar kapatma isteği ayrıca raporda kayıtlıdır.
+
+## Güncel ek — Phase 2.5 (9 Kasım 2026)
+
+Phase 2 yerel değişiklikleri korunarak **Tidal cam kapsül + tıklamayla açılan adaptive panel** uygulandı. İki gerçek XAML çalışması (Tidal/Prism) ve açık/koyu renderları üretildi; Tidal seçildi. Materyal WPF alpha/gradyan/ince ışık katmanlarıdır, **native blur/Acrylic/Mica değildir**. Yeni paket/framework yok. Tam teknik değerlendirme, dosyalar, görseller ve doğrulama sınırları: [Phase 2.5 raporu](PHASE25_VALIDATION.md).
+
+- Compact: kapak + mevcut kayan başlık/sanatçı + isteğe bağlı play/next; üç nokta veya kapak paneli açar. Dar alanda üç nokta/next kaldırılır, kapak erişimi korunur. Satır 298×41 DIP (önce 413×43); minimum play ile 152 DIP, playsiz 118 DIP. Dış Win32/DPI/monitor yerleşim algoritması korunur.
+- Expanded: mevcut kontroller ve timeline ayrı NOACTIVATE WPF Popup'ındadır; Show* tercihleri korunur. Yeni medya servisleri yok; kapak mevcut görsel/crossfade ağacından gelir. Popup açıkken auto-hide pin ve z-order koruması uygulanır; hide, owner/ayar değişimi, taşıma modu ve kapanış temizliği eklendi. Bekleyen volume okuması panel nesli değişince popup açmaz.
+- Son Debug/Release: 0 uyarı / 0 hata. xUnit: **17/17 geçti**. Gerçek popup HWND'si sentetik ayarlı izole host'ta açıldı; foreground/NOACTIVATE, nested volume ve hide temizliği geçti. MainWindow startup/Loaded, gerçek medya ve taskbar hook'ları bu testte çalışmadı.
+- 100–200% sentetik render ve 0.8/1/1.1 gerçek LayoutTransform kontrolleri yapıldı; fiziksel karma DPI/taskbar testi değildir. Spotify kapalıydı ve başlatılmadı. Gerçek medya, auto-hide/fullscreen ve uzun süreli kullanım kabul testleri açık.
+- Sessiz ekran dışı çizim örneğinde CPU (tek çekirdek) önce %2.19, compact %2.28, expanded %2.60; working set 99.13 / 99.23 / 114.20 MiB. Üçer yaklaşık 5 sn örnek; gerçek oynatma/GPU/sızıntı sonucu değildir. Koşullar ve ham veri yolları rapordadır.
+
+Yeni UI davranışı `MainWindow.Adaptive.cs` içindedir. Yeni ayar şeması/migrasyon eklenmedi. Önceki Phase 2 sonuçları aşağıda tarihsel kayıt olarak korunur. Commit/push/release yapılmadı.
+
+Hazırlık tarihi: **8 Kasım 2026 (Europe/Istanbul)**. **Güncelleme: 9 Kasım 2026, Phase 2.** İlk hazırlıktan sonra Phase 1 ve ilk Fluent tasarımı `f155c5c` commit'ine girdi. Bu oturum mevcut tasarımın açık/koyu paletlerini, popup kaynaklarını, 140 ms buton geri bildirimini, tipografi ve kapak fallback'ini tamamladı. Ayrıntılar, değişen dosyalar, kanıtlar ve sınırlar: [Phase 2 doğrulama raporu](PHASE2_VALIDATION.md). Aşağıdaki hazırlık kayıtları tarihsel başlangıç durumunu anlatır; güncel test durumu öncelikle bu ek rapordan okunmalı.
+
+Güncel sonuç: uygulama Debug ve Release **0 uyarı / 0 hata**, xUnit **13/13 geçti**. 100/125/150/200% sentetik WPF renderları üretildi; canlı Spotify, fiziksel karma DPI, medya kontrolleri ve taskbar etkileşimleri doğrulanmadı. Spotify çalışmıyordu ve başlatılmadı. Sınırlı ekran dışı çizim ölçümü rapordadır; canlı CPU/RAM garantisi değildir. Değişiklikler commit/push edilmedi.
 
 ## 1. Devir durumu ve ilk yapılacak iş
 
-**Geliştirmeye başlamak için hazır; tam işlevsel doğrulama tamamlanmış değil.** Restore, Debug, Release ve README publish işlemleri başarılıdır. EXE başlatıldı; çalışan Spotify olmadığı için görünür widget ve medya etkileşimi doğrulanamadı. Antigravity ilk olarak kökteki `AGENTS.md` ve bu belgeyi okumalı, Git durumunu kontrol etmeli ve Spotify açık bir test ortamında aşağıdaki temel davranış matrisini tamamlamalıdır. İlk değişiklik görsel yenileme değil, mevcut davranışın kaydı ve yaşam döngüsü risklerinin küçük adımlarla ele alınması olmalıdır.
+**Phase 2 kodu uygulandı; tam işlevsel doğrulama tamamlanmış değil.** 8 Kasım hazırlığında restore, Debug, Release ve README publish işlemleri başarılıydı. EXE başlatılmıştı; çalışan Spotify olmadığı için görünür widget ve medya etkileşimi doğrulanamamıştı. Güncel çalışma için kökteki `AGENTS.md`, bu belge ve Phase 2 raporu okunmalı; Git durumu yeniden kontrol edilmeli ve Spotify açık izole bir test ortamında aşağıdaki temel davranış matrisi tamamlanmalıdır. Yaşam döngüsü düzeltmelerinin durumu risk tablosunda; canlı doğrulama sınırları ek rapordadır.
 
 Çalışma kökü: `C:\Users\Burhan\Desktop\projects\taskbar`.
 
@@ -144,7 +168,9 @@ App.OnStartup (tek örnek mutex, genel hata işleyici)
 
 Parça yenileme `_refreshing` ile pencere başına tekilleşir; Spotify süreç kontrolü, 5 saniye bekleme sınırı olan metadata okuma, kısa boş parça toleransı ve kapanış grace süresi kullanır. UIA durum sorgusu normalde en az 5 saniyede bir veya parça/dirty olayında; çağrı bekleme sınırı 8 saniye. UIA grup adını SMTC başlığıyla karşılaştırıp eskimiş favori bilgisini ayırır. Yeni parçada en fazla 12 tur/500 ms aralıklı settle sorgusu bulunur. Bunlar saf polling uygulaması değildir; event ve fallback polling birlikte çalışır.
 
-Kapak metadata'dan ayrı okunur, byte[] -> BitmapImage/OnLoad -> Freeze; UI'da 250 ms fade/crossfade. Başlık gerçek render genişliği ve DPI ile ölçülür; WPF keyframe animasyonu tek sefer veya sürekli kaydırır. Hover/pressed ikon ölçekleri XAML trigger'larıdır; bunlarda süreli easing yok. Progress her 600 ms son timeline zamanından interpolate edilir; click seek için eski snapshot'lar kısa süre bastırılır.
+Kapak metadata'dan ayrı okunur, byte[] -> BitmapImage/OnLoad -> Freeze; UI'da 250 ms fade/crossfade. Başlık gerçek render genişliği ve DPI ile ölçülür; WPF keyframe animasyonu tek sefer veya sürekli kaydırır. Phase 2'de hover/pressed ölçek sıçramaları yerine sabit buton alanı içinde 140 ms VSM opacity geçişleri kullanılır. Windows `ClientAreaAnimation=false` olduğunda yeni geçişler anlık, flyout animasyonu kapalıdır; mevcut kapak/marquee/auto-hide animasyonları değiştirilmedi. Progress her 600 ms son timeline zamanından interpolate edilir; click seek için eski snapshot'lar kısa süre bastırılır.
+
+Görsel renkler `Themes/Dark.xaml` ve `Themes/Light.xaml` kaynaklarındadır. `ApplyTheme` paleti değiştirir; context menu ve volume popup aynı pencere kaynaklarına erişir. Internal sentetik ayar constructor'ı ve `Properties/AssemblyInfo.cs` yalnız izole UI testine olanak sağlar; normal startup hâlâ `WidgetSettings.Shared` kullanır.
 
 UIA, stable controls grubunu cache'ler; başlık/favori grubu her seferinde türetilir. Repeat checkbox, dört çocuk kontrol düğmesi, ilk shuffle düğmesi ve son favori düğmesi gibi yapısal varsayımlar vardır. `Monitor.TryEnter(3s)` kilit beklemesini sınırlar; UIA sağlayıcısındaki tek çağrıyı iptal etmez. Gerçek mouse fallback'i imleci ve odağı kısa süre değiştirebilir; eski durumu finally ile geri yüklemeye çalışır.
 
@@ -162,7 +188,7 @@ Her seçili görev çubuğunda ayrı MediaService/UIA ve timer'larla bir pencere
 
 Dispatcher hataları loglanıp handled edilir; birçok WinRT/UIA/COM hatası null/Unknown/false veya sessiz catch ile yumuşatılır. Bu yaklaşım çöküşü azaltır ama başarısız kontrolü teşhis etmeyi zorlaştırır. Güncelleme kontrolü unpackaged sürümde başlangıçtan 20 saniye sonra ve 6 saatte bir GitHub'a gider; indirme/kendini değiştirme kullanıcı menüsü onayından sonra olur. Store yolunda updater menüsü gizlenir. Autostart değişikliği yalnız menü tıklamasında HKCU Run veya paket StartupTask üzerinden yapılır.
 
-## 6. Teknik riskler — düzeltme yapılmadı
+## 6. Teknik riskler — başlangıç incelemesi ve sonraki güncellemeler
 
 Önem: **Yüksek** geliştirmeden önce inceleme, **Orta** ilgili özelliğe dokunmadan önce doğrulama, **Düşük** bakım/izleme. “Kodda doğrulandı” kontrol akışının varlığını belirtir; son kullanıcıda arıza üretildiği anlamına gelmez.
 
@@ -192,13 +218,13 @@ Mevcut WPF ile devam edin. Yeni framework/WinUI geçişi veya kapsamlı MVVM dö
 
 | Sıra / özellik | Dosyalar | Yaklaşım / bağımlılık | Çakışma ve kabul ölçütü | Zorluk / risk |
 |---|---|---|---|---|
-| 1. CPU/RAM optimizasyonu (#10) [TAMAMLANDI Phase 1-2] | MainWindow.xaml.cs, MediaService.cs | Task birikimi, leakler ve process dispose düzeltildi; RAM 222MB->204MB, CPU %0.47 ölçüldü | xUnit ve 10s smoke ölçümü | Tamamlandı |
+| 1. CPU/RAM optimizasyonu (#10) [Phase 1 kod düzeltmeleri; ölçüm sınırlı] | MainWindow.xaml.cs, MediaService.cs | Yaşam döngüsü/task/process dispose düzeltmeleri mevcut. Eski kısa idle RAM örnekleri optimizasyon veya sızıntı kanıtı değildir. Phase 2 ekran dışı çizim karşılaştırması ek raporda | Uzun süreli aktif medya ve çoklu monitör profili hâlâ gerekli | Canlı ölçüm bekliyor |
 | 2. Görev çubuğu uyumu (#11) | Interop.cs, TaskbarAnchors.cs, MainWindow.xaml.cs, app.manifest; gerekirse Packaging/winget metadata | Mevcut px/DIP sınırlarını koru; Windows sürümü/taskbar yetenek tespiti ve güvenli fallback. Standart Win32/UIA yeterli | Fullscreen, owner/restart, tray çakışması, auto-hide ve karma DPI matrisi; sistem ayarını uygulama değiştirmemeli | Yüksek / yüksek |
 | 3. Türkçe (#8) | L.cs, MainWindow.xaml(.cs), gerekirse Packaging/AppxManifest.xml; ayrı olarak SpotifyUiaService.cs | L içindeki dil seçimini TR/EN/PT olacak şekilde küçük genişlet; UIA etiket doğrulaması ayrı test. Paket gerekmez | Uzun Türkçe metin, ı/İ/ş/ğ, mevcut EN/PT fallback; XAML sabit metinlerini de denetle. Spotify dili ile widget dilini karıştırma | Düşük–orta / düşük |
 | 4. Boyut/opaklık/konum (#6) | WidgetSettings.cs, MainWindow.xaml(.cs), L.cs, Interop.cs | Mevcut Scale, Opacity, ManualX, Monitors üzerine sınırları doğrulanan seçenekler ekle. Yeni bağımlılık yok | Eski JSON/legacy alanları koru; %20 tabanı; manuel Y/serbest boyut taskbar bandına ve DPI'ya çarpabilir | Orta / orta |
 | 5. Buton düzenleme (#7) | WidgetSettings.cs, MainWindow.xaml(.cs), L.cs | Görünürlük zaten var; sıra istenirse kararlı kontrol kimlikleri ve eski ayara varsayılan sıra. Sabit paneli küçük adımla düzenle | ApplyResponsiveLayout sabit öncelik ve ölçüler kullanır; kullanıcı sırası ile dar alan önceliğini açık tanımla; play gizlenebilir kalmalı | Orta / orta |
-| 6. Fluent modern UI (#1) [TAMAMLANDI Phase 2] | MainWindow.xaml, MainWindow.xaml.cs | Windows 11 Fluent tipografi (Segoe UI Variable), yuvarlatılmış köşeler, flyout stili, hafif pill hover ve modern renkler | xUnit STA visual snapshot ve derleme | Tamamlandı |
-| 7. Hover/geçişler (#4) [TAMAMLANDI Phase 2] | MainWindow.xaml | Butonlarda hafif dairesel vurgu, ölçekleme ve basılma mikro etkileşimleri | xUnit STA visual snapshot | Tamamlandı |
+| 6. Fluent modern UI (#1) [UYGULANDI Phase 2] | MainWindow.xaml, MainWindow.xaml.cs, Themes/*.xaml | Segoe UI Variable, merkezi iki palet, yuvarlatılmış kapak, vektör fallback ve tutarlı menü/ses flyout'ı | Debug/Release, 13 xUnit, 100–200% ekran dışı render; canlı Spotify/DPI kabul testi bekliyor | Kod tamam, canlı test açık |
+| 7. Hover/geçişler (#4) [UYGULANDI Phase 2] | MainWindow.xaml, MainWindow.xaml.cs | Buton ölçülerini koruyan 140 ms opacity geri bildirimi; azaltılmış harekette anlık durum | VSM/tercih regresyon testi; gerçek mouse ve z-order testi bekliyor | Kod tamam, canlı test açık |
 | 8. Dinamik kapak rengi (#3) | MainWindow.xaml.cs (ToBitmap/SetAlbumArt/ApplyThemeIfChanged), MainWindow.xaml, WidgetSettings.cs; küçük renk çıkarıcı dosya | Küçük piksel örneklemiyle background hesap, track-key cache ve kontrast sınırlaması; WPF bitmap API'leri yeterli | SpotifyGreen durum rengini ve aydınlık/koyu kontrastını ezme; eski kapaktan geç sonuç gelmesini nesille engelle; kapaksız fallback | Orta / orta |
 | 9. Daha iyi oynatıcı yönetimi (#9) | MediaService.cs, MainWindow.xaml(.cs), WidgetSettings.cs, L.cs, SpotifyVolume.cs; gerekirse küçük provider arayüzü | SMTC session kimliği/yetenekleri, otomatik/Spotify/pinned seçim; Spotify ek kontrollerini özel provider'da tut. Yeni Web API/auth gerekmez | Spotify processAlive filtresi kaldırılmadan genel medya çalışmaz; UIA/volume Spotify'ı yanlışlıkla kontrol etmemeli; yeteneksiz seek/komutları güvenle kapat | Yüksek / yüksek |
 | 10. Genişleyen mini oynatıcı (#5) | MainWindow.xaml(.cs), gerekirse ayrı küçük popup pencere, WidgetSettings.cs, Interop.cs, L.cs | Taskbar satırından ayrı genişleyen yüzey; ortak medya snapshot'ı; normalde ayrı servis başlatma | SizeToContent/owner/NOACTIVATE/fullscreen/auto-hide, ekran kenarı ve popup kapanışı; yeniden medya aboneliği üretme | Yüksek / yüksek |

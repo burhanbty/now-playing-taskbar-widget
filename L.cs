@@ -12,6 +12,9 @@ internal static class L
         CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("pt", StringComparison.OrdinalIgnoreCase);
 
     public const string AppTitle = "Taskbar Widget for Spotify";
+    public static string ShowControls => Pt ? "Mostrar controlos" : "Show controls";
+    public static string CloseControls => Pt ? "Fechar controlos" : "Close controls";
+    public static string NowPlaying => Pt ? "A TOCAR AGORA" : "NOW PLAYING";
 
     // Menu
     public static string MoveWidget => Pt ? "Mover widget" : "Move widget";
@@ -46,6 +49,8 @@ internal static class L
         : "When Spotify is closed, show a button to open it instead of hiding the widget";
     public static string AutoStart => Pt ? "Iniciar com o Windows" : "Start with Windows";
     public static string OpenSpotify => Pt ? "Abrir Spotify" : "Open Spotify";
+    public static string OpenSimpMusic => Pt ? "Abrir SimpMusic" : "Open SimpMusic";
+    public static string TipSimpMusicVolume => Pt ? "Volume do SimpMusic" : "SimpMusic volume";
     public static string CheckUpdates => Pt ? "Procurar atualizações" : "Check for updates";
     public static string Donate => Pt ? "Apoiar o projeto ☕" : "Support the project ☕";
     public static string Exit => Pt ? "Sair" : "Quit";

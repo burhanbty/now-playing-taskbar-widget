@@ -1,0 +1,38 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="PrimaryBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="SecondaryBrush" Color="#555555"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#66000000"/>
+    <SolidColorBrush x:Key="DisabledBrush" Color="#888888"/>
+    <SolidColorBrush x:Key="ControlFeedbackBrush" Color="#20000000"/>
+    <SolidColorBrush x:Key="RootHoverBrush" Color="#09000000"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FBFBFB"/>
+    <SolidColorBrush x:Key="SurfaceBorderBrush" Color="#20000000"/>
+    <SolidColorBrush x:Key="SeparatorBrush" Color="#18000000"/>
+    <SolidColorBrush x:Key="SliderTrackBrush" Color="#44000000"/>
+    <SolidColorBrush x:Key="SliderThumbBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ProgressTrackBrush" Color="#20000000"/>
+    <SolidColorBrush x:Key="PlayBackgroundBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="PlayForegroundBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="PlayFeedbackBrush" Color="#40FFFFFF"/>
+    <SolidColorBrush x:Key="ArtSurfaceBrush" Color="#10000000"/>
+    <SolidColorBrush x:Key="ArtBorderBrush" Color="#18000000"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#107C41"/>
+    <LinearGradientBrush x:Key="GlassCapsuleBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#EDFFFFFF" Offset="0"/><GradientStop Color="#DCEBF1F7" Offset="0.55"/><GradientStop Color="#DFDFE7F0" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="GlassPanelBrush" StartPoint="0,0" EndPoint="0.7,1">
+        <GradientStop Color="#F7FFFFFF" Offset="0"/><GradientStop Color="#F2E7EDF5" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0,0" EndPoint="0.25,1">
+        <GradientStop Color="#FFFFFFFF" Offset="0"/><GradientStop Color="#408E9CAF" Offset="0.5"/><GradientStop Color="#60ABB8CA" Offset="1"/>
+    </LinearGradientBrush>
+    <RadialGradientBrush x:Key="GlassReflectionBrush" Center="0.3,0" GradientOrigin="0.3,0" RadiusX="0.8" RadiusY="1.3">
+        <GradientStop Color="#80FFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="1"/>
+    </RadialGradientBrush>
+    <SolidColorBrush x:Key="GlassHoverBrush" Color="#20FFFFFF"/>
+    <SolidColorBrush x:Key="GlassInsetBrush" Color="#0D52647C"/>
+    <SolidColorBrush x:Key="GlassSoftEdgeBrush" Color="#35FFFFFF"/>
+    <SolidColorBrush x:Key="GlassPlayBrush" Color="#26354B"/>
+    <SolidColorBrush x:Key="GlassPlayInkBrush" Color="#FFFFFF"/>
+</ResourceDictionary>

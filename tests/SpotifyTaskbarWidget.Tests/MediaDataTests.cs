@@ -4,6 +4,15 @@ namespace SpotifyTaskbarWidget.Tests;
 
 public class MediaDataTests
 {
+    [Theory]
+    [InlineData("Chrome", "Simpmusic_ejp2bhxmz1qq6!Simpmusic", 1)]
+    [InlineData("SIMPMUSIC_EJP2BHXMZ1QQ6!SIMPMUSIC", "Spotify.exe", 1)]
+    [InlineData("SimpMusic_fake!Simpmusic", "Chrome", -1)]
+    [InlineData("Spotify.exe", "Simpmusic_ejp2bhxmz1qq6!Simpmusic", 0)]
+    public void SelectSessionIndex_ChoosesOnlySupportedPlayersAndPrefersSpotify(string first, string second, int expected)
+    {
+        Assert.Equal(expected, MediaService.SelectSessionIndex(new[] { first, second }));
+    }
     [Fact]
     public void TrackInfo_RecordPropertiesAndImmutability()
     {

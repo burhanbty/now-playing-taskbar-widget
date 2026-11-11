@@ -1,26 +1,52 @@
+using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
 namespace SpotifyTaskbarWidget;
 
 public sealed record TrackInfo(string Title, string Artist, bool IsPlaying, bool? IsShuffle,
-    TimeSpan Position, TimeSpan Duration, DateTime PositionAtUtc);
+    TimeSpan Position, TimeSpan Duration, DateTime PositionAtUtc)
+{
+    internal MediaControls Controls { get; init; }
+    internal MediaPlaybackAutoRepeatMode? Repeat { get; init; }
+}
+
+[Flags]
+internal enum MediaControls
+{
+    None = 0, PlayPause = 1, Previous = 2, Next = 4, Seek = 8, Shuffle = 16, Repeat = 32,
+}
 
 /// <summary>
 /// Lê a música atual através da API de media do Windows (SMTC).
-/// O Spotify desktop publica aqui a faixa em reprodução — não é preciso
-/// login nem API do Spotify. Prefere a sessão do Spotify; se não existir,
-/// usa a sessão de media ativa.
+/// Prefere Spotify e aceita a sessão do SimpMusic instalado pela Store.
 /// </summary>
 public sealed class MediaService
 {
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
-    private GlobalSystemMediaTransportControlsSession? _session;
+    private volatile GlobalSystemMediaTransportControlsSession? _session;
     private readonly CancellationTokenSource _initCts = new();
     private bool _disposed;
     private readonly object _pickLock = new();
 
     public bool IsDisposed => _disposed;
+    internal GlobalSystemMediaTransportControlsSession? SelectedSession => _session;
+
+    internal static bool IsSimpMusicSource(string? source) =>
+        string.Equals(source, "Simpmusic_ejp2bhxmz1qq6!Simpmusic", StringComparison.OrdinalIgnoreCase);
+
+    internal static int SelectSessionIndex(IReadOnlyList<string?> sources)
+    {
+        int simpMusic = -1;
+        for (int i = 0; i < sources.Count; i++)
+        {
+            if (sources[i]?.Contains("spotify", StringComparison.OrdinalIgnoreCase) == true)
+                return i;
+            if (simpMusic < 0 && IsSimpMusicSource(sources[i]))
+                simpMusic = i;
+        }
+        return simpMusic;
+    }
 
     /// <summary>Disparado (em thread de background) quando a faixa ou o estado mudam.</summary>
     public event Action? Changed;
@@ -125,14 +151,13 @@ public sealed class MediaService
     {
         if (_disposed || _manager == null) return;
 
-        // Apenas sessões do Spotify — sem fallback para outras apps (Chrome, etc.),
-        // senão o widget mostra media de outros programas quando o Spotify fecha.
         GlobalSystemMediaTransportControlsSession? chosen = null;
         try
         {
             var sessions = _manager.GetSessions();
-            chosen = sessions.FirstOrDefault(s =>
-                (s.SourceAppUserModelId ?? "").Contains("spotify", StringComparison.OrdinalIgnoreCase));
+            var sources = sessions.Select(s => s.SourceAppUserModelId).ToArray();
+            int index = SelectSessionIndex(sources);
+            if (index >= 0) chosen = sessions[index];
             // Há sessões mas nenhuma é do Spotify: só é anómalo se o Spotify
             // estiver mesmo a correr (Chrome/YouTube com o Spotify fechado é o
             // dia-a-dia normal — registá-lo enchia o log de falsos erros)
@@ -204,9 +229,9 @@ public sealed class MediaService
     }
 
     /// <summary>Leitura rápida da timeline (sem propriedades da faixa nem capa).</summary>
-    public (TimeSpan Position, TimeSpan Duration, bool IsPlaying, DateTime PositionAtUtc)? GetTimeline()
+    internal (TimeSpan Position, TimeSpan Duration, bool IsPlaying, DateTime PositionAtUtc)? GetTimeline(
+        GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
         if (s == null) return null;
         try
         {
@@ -223,9 +248,8 @@ public sealed class MediaService
         }
     }
 
-    public async Task<TrackInfo?> GetTrackAsync()
+    internal async Task<TrackInfo?> GetTrackAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
         if (s == null) return null;
         try
         {
@@ -239,19 +263,33 @@ public sealed class MediaService
             TimeSpan duration = tl != null ? tl.EndTime - tl.StartTime : TimeSpan.Zero;
             DateTime positionAt = tl?.LastUpdatedTime.UtcDateTime ?? DateTime.UtcNow;
 
-            return new TrackInfo(props?.Title ?? "", props?.Artist ?? "", playing, pi?.IsShuffleActive,
+            var track = new TrackInfo(props?.Title ?? "", props?.Artist ?? "", playing, pi?.IsShuffleActive,
                 position, duration, positionAt);
+            if (!IsSimpMusicSource(s.SourceAppUserModelId)) return track;
+
+            var controls = pi?.Controls;
+            MediaControls available = MediaControls.None;
+            if (controls != null)
+            {
+                if (controls.IsPlayPauseToggleEnabled || (playing ? controls.IsPauseEnabled : controls.IsPlayEnabled))
+                    available |= MediaControls.PlayPause;
+                if (controls.IsPreviousEnabled) available |= MediaControls.Previous;
+                if (controls.IsNextEnabled) available |= MediaControls.Next;
+                if (controls.IsPlaybackPositionEnabled) available |= MediaControls.Seek;
+                if (controls.IsShuffleEnabled && pi?.IsShuffleActive != null) available |= MediaControls.Shuffle;
+                if (controls.IsRepeatEnabled && pi?.AutoRepeatMode != null) available |= MediaControls.Repeat;
+            }
+            return track with { Controls = available, Repeat = pi?.AutoRepeatMode };
         }
         catch (Exception ex)
         {
-            Diag.Once("get-track", "Reading track from the Spotify session failed: " + ex.Message);
+            Diag.Once("get-track", "Reading track from the selected media session failed: " + ex.Message);
             return null;
         }
     }
 
-    public async Task<byte[]?> GetThumbnailAsync()
+    internal async Task<byte[]?> GetThumbnailAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
         if (s == null) return null;
         try
         {
@@ -273,38 +311,49 @@ public sealed class MediaService
         }
     }
 
-    public async Task TogglePlayPauseAsync()
+    internal async Task TogglePlayPauseAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
-        if (s == null) return;
-        try { await s.TryTogglePlayPauseAsync(); } catch { }
+        if (s == null || !ReferenceEquals(s, _session)) return;
+        try
+        {
+            if (!IsSimpMusicSource(s.SourceAppUserModelId))
+            {
+                await s.TryTogglePlayPauseAsync();
+                return;
+            }
+
+            var playback = s.GetPlaybackInfo();
+            if (playback?.Controls?.IsPlayPauseToggleEnabled == true)
+                await s.TryTogglePlayPauseAsync();
+            else if (playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                await s.TryPauseAsync();
+            else
+                await s.TryPlayAsync();
+        }
+        catch { }
     }
 
-    public async Task NextAsync()
+    internal async Task NextAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
-        if (s == null) return;
+        if (s == null || !ReferenceEquals(s, _session)) return;
         try { await s.TrySkipNextAsync(); } catch { }
     }
 
-    public async Task PreviousAsync()
+    internal async Task PreviousAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
-        if (s == null) return;
+        if (s == null || !ReferenceEquals(s, _session)) return;
         try { await s.TrySkipPreviousAsync(); } catch { }
     }
 
-    public async Task SeekAsync(TimeSpan position)
+    internal async Task SeekAsync(GlobalSystemMediaTransportControlsSession? s, TimeSpan position)
     {
-        var s = _session;
-        if (s == null) return;
+        if (s == null || !ReferenceEquals(s, _session)) return;
         try { await s.TryChangePlaybackPositionAsync(position.Ticks); } catch { }
     }
 
-    public async Task CycleRepeatAsync()
+    internal async Task CycleRepeatAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
-        if (s == null) return;
+        if (s == null || !ReferenceEquals(s, _session)) return;
         try
         {
             var current = s.GetPlaybackInfo()?.AutoRepeatMode ?? Windows.Media.MediaPlaybackAutoRepeatMode.None;
@@ -319,10 +368,9 @@ public sealed class MediaService
         catch { }
     }
 
-    public async Task ToggleShuffleAsync()
+    internal async Task ToggleShuffleAsync(GlobalSystemMediaTransportControlsSession? s)
     {
-        var s = _session;
-        if (s == null) return;
+        if (s == null || !ReferenceEquals(s, _session)) return;
         try
         {
             bool current = s.GetPlaybackInfo()?.IsShuffleActive ?? false;

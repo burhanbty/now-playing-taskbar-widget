@@ -48,19 +48,32 @@ internal static class SpotifyActions
 
     public static void OpenSpotifyWindow()
     {
-        var proc = Process.GetProcessesByName("Spotify").FirstOrDefault(p => p.MainWindowHandle != IntPtr.Zero);
-        if (proc != null)
+        if (OpenRunningPlayerWindow("Spotify")) return;
+        try
         {
-            Interop.ShowWindow(proc.MainWindowHandle, Interop.SW_RESTORE);
-            Interop.SetForegroundWindow(proc.MainWindowHandle);
+            Process.Start(new ProcessStartInfo("spotify:") { UseShellExecute = true });
         }
-        else
+        catch { }
+    }
+
+    internal static bool OpenRunningPlayerWindow(string processName)
+    {
+        var processes = Process.GetProcessesByName(processName);
+        try
         {
-            try
+            foreach (var process in processes)
             {
-                Process.Start(new ProcessStartInfo("spotify:") { UseShellExecute = true });
+                var handle = process.MainWindowHandle;
+                if (handle == IntPtr.Zero) continue;
+                Interop.ShowWindow(handle, Interop.SW_RESTORE);
+                Interop.SetForegroundWindow(handle);
+                return true;
             }
-            catch { }
         }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+        return false;
     }
 }

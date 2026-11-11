@@ -4,15 +4,15 @@ using System.Runtime.InteropServices;
 namespace SpotifyTaskbarWidget;
 
 /// <summary>
-/// Controla o volume das sessões de áudio do Spotify (não o volume do sistema),
+/// Controla o volume das sessões de áudio do processo selecionado,
 /// via CoreAudio — o mesmo que aparece no Misturador de Volume do Windows.
 /// </summary>
 internal static class SpotifyVolume
 {
-    public static float? GetVolume()
+    public static float? GetVolume(string processName = "Spotify")
     {
         float? result = null;
-        ForEachSpotifySession(v =>
+        ForEachAudioSession(processName, v =>
         {
             if (result == null && v.GetMasterVolume(out float level) == 0)
                 result = level;
@@ -20,19 +20,28 @@ internal static class SpotifyVolume
         return result;
     }
 
-    public static void SetVolume(float level)
+    public static void SetVolume(float level, string processName = "Spotify")
     {
         level = Math.Clamp(level, 0f, 1f);
-        ForEachSpotifySession(v =>
+        ForEachAudioSession(processName, v =>
         {
             var ctx = Guid.Empty;
             v.SetMasterVolume(level, ref ctx);
         });
     }
 
-    private static void ForEachSpotifySession(Action<ISimpleAudioVolume> action)
+    private static void ForEachAudioSession(string processName, Action<ISimpleAudioVolume> action)
     {
-        var pids = Process.GetProcessesByName("Spotify").Select(p => (uint)p.Id).ToHashSet();
+        var processes = Process.GetProcessesByName(processName);
+        var pids = new HashSet<uint>();
+        try
+        {
+            foreach (var process in processes) pids.Add((uint)process.Id);
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
         if (pids.Count == 0) return;
 
         try

@@ -25,6 +25,7 @@
     <Compile Remove="tests\**" />
     <None Remove="tests\**" />
     <Content Remove="tests\**" />
+    <Page Remove="docs\design\**" />
   </ItemGroup>
 
 </Project>

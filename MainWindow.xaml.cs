@@ -10,6 +10,8 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Windows.Media;
+using Windows.Media.Control;
 
 namespace SpotifyTaskbarWidget;
 
@@ -36,7 +38,7 @@ public partial class MainWindow : Window
 
     private readonly MediaService _media = new();
     private readonly SpotifyUiaService _uia = new();
-    private readonly WidgetSettings _settings = WidgetSettings.Shared;
+    private readonly WidgetSettings _settings;
     private bool? _liked;
 
     /// <summary>Barra desta janela (0 = principal, 1+ = secundárias). Cada
@@ -103,7 +105,13 @@ public partial class MainWindow : Window
     private bool _artDirty = true;
     private bool _refreshing;
     private bool _volLoading;
-    private bool _spotifyPresent = true;
+    private bool _playerPresent = true;
+    private GlobalSystemMediaTransportControlsSession? _displayedSession;
+    private bool _isSimpMusic;
+    private MediaControls _simpMusicControls;
+
+    private bool IsDisplayedSessionCurrent => !_closed && ReferenceEquals(_displayedSession, _media.SelectedSession);
+    private bool CanControl(MediaControls control) => !_isSimpMusic || (_simpMusicControls & control) != 0;
     private DateTime _sessionLostAt = DateTime.MinValue;
     private DateTime _trackNullSince = DateTime.MinValue;
 
@@ -161,9 +169,20 @@ public partial class MainWindow : Window
     private const double MaxTextWidth = 150;
     private const double MinTextWidth = 60;
 
-    public MainWindow()
+    public MainWindow() : this(WidgetSettings.Shared)
     {
+    }
+
+    // Off-screen UI tests supply synthetic settings without reading the user's profile.
+    internal MainWindow(WidgetSettings settings)
+    {
+        _settings = settings;
         InitializeComponent();
+        // Detached popup trees must resolve the same palette and implicit styles as the widget.
+        Root.ContextMenu.Resources.MergedDictionaries.Add(Resources);
+        VolumePopup.Resources.MergedDictionaries.Add(Resources);
+        InitializeAdaptiveUi();
+        ApplyMotionPreference(SystemParameters.ClientAreaAnimation);
         Instances.Add(this);
         Loaded += OnLoaded;
     }
@@ -218,6 +237,7 @@ public partial class MainWindow : Window
         LauncherPanel.ToolTip = L.TipOpenSpotify;
         LauncherText.Text = L.OpenSpotify;
         ArtistText.Text = L.NothingPlaying;
+        ApplyAdaptiveLanguage();
     }
 
     private bool _uiReady;
@@ -283,7 +303,7 @@ public partial class MainWindow : Window
                     (!VolumePopupBorder.IsMouseOver && !VolumeButton.IsMouseOver))
                 {
                     _volPopupWatchdog?.Stop();
-                    VolumePopup.IsOpen = false;
+                    CloseVolumeAfterPointerExit();
                 }
             };
             _volPopupWatchdog.Start();
@@ -354,10 +374,12 @@ public partial class MainWindow : Window
         UpdateSizeChecks();
         ApplyOpacity();
         UpdateOpacityChecks();
+        UpdateExpandedVisibility();
     }
 
     private void OnSettingsChanged()
     {
+        CloseExpanded();
         ApplySettingsUi();
         // Reposicionar só DEPOIS do layout assentar: mudar tamanho/escala e
         // medir a janela no mesmo instante usava as dimensões antigas e o
@@ -480,6 +502,7 @@ public partial class MainWindow : Window
         // reiniciar, a janela morre com a barra e o OnClosed recria o widget.
         if (tray != _ownerTray && _hwnd != IntPtr.Zero)
         {
+            CloseExpanded();
             Interop.SetWindowLongPtr(_hwnd, Interop.GWLP_HWNDPARENT, tray);
             _ownerTray = tray;
             ReassertTopmost();
@@ -537,7 +560,7 @@ public partial class MainWindow : Window
         // slider/menu fechava-lhe o popup nas mãos (e um arrasto de move-mode
         // escondido perdia a captura do rato e ficava _dragging preso). Quando
         // a interação acabar, o tick seguinte esconde normalmente.
-        bool pinned = _dragging || VolumePopup.IsOpen ||
+        bool pinned = _dragging || ExpandedPopup.IsOpen || VolumePopup.IsOpen ||
                       (Root.ContextMenu?.IsOpen ?? false);
 
         if (visiblePx <= 8)
@@ -657,7 +680,7 @@ public partial class MainWindow : Window
             leftPx = Math.Max(rightAnchorLeftLimitPx, rightLimitPx - winWidth);
         }
 
-        if (_spotifyPresent)
+        if (_playerPresent)
         {
             int availPx = rightAnchored ? rightLimitPx - rightAnchorLeftLimitPx : rightLimitPx - leftPx;
             if (!ApplyResponsiveLayout(availPx / windowScale))
@@ -674,7 +697,7 @@ public partial class MainWindow : Window
         // janelas maximizadas ocupam o ecrã todo e dariam falsos positivos; a
         // visibilidade já segue a da barra); ou Spotify fechado sem botão de abrir.
         bool hide = (!Interop.IsAutoHideEnabled() && Interop.IsForegroundFullscreen(_hwnd, tray))
-                    || (!_spotifyPresent && !_settings.ShowLauncher);
+                    || (!_playerPresent && !_settings.ShowLauncher);
         if (hide)
         {
             _barWasHidden = false;
@@ -714,6 +737,7 @@ public partial class MainWindow : Window
     /// divergirem (havia caminhos que deixavam popups órfãos a flutuar).</summary>
     private void HideWidget()
     {
+        CloseExpanded();
         VolumePopup.IsOpen = false;
         if (Root.ContextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
@@ -726,7 +750,7 @@ public partial class MainWindow : Window
     /// em ocultação automática também vive na banda topmost).</summary>
     private void ReassertTopmost()
     {
-        if (!_tooltipOpen && !VolumePopup.IsOpen)
+        if (!_tooltipOpen && !VolumePopup.IsOpen && !ExpandedPopup.IsOpen)
             Interop.EnsureTopmost(_hwnd);
     }
 
@@ -756,7 +780,10 @@ public partial class MainWindow : Window
         _rideAnimating = true;
         _rideDown = down;
         if (down)
+        {
+            CloseExpanded();
             VolumePopup.IsOpen = false;
+        }
 
         double eased0 = down ? t0 * t0 * t0 : 1 - Math.Pow(1 - t0, 3);
         int startTopPx = (int)Math.Round(fromTopPx + (toTopPx - fromTopPx) * eased0);
@@ -798,65 +825,31 @@ public partial class MainWindow : Window
         _rideAnimating = false;
     }
 
-    /// <summary>
-    /// Encaixa o widget no espaço disponível: primeiro encolhe o texto até um
-    /// mínimo; se mesmo assim não couber, esconde os botões menos importantes
-    /// (volume → aleatório → favoritos → seguinte → anterior).
-    /// Devolve false quando nem a versão mínima cabe no espaço dado.
-    /// </summary>
+    /// <summary>Compact transport fits the same taskbar gap; all enabled secondary
+    /// controls remain reachable through the cover/explicit details button.</summary>
     private bool ApplyResponsiveLayout(double availableDip)
     {
-        double s = _settings.Scale;
-        double avail = availableDip / s; // trabalhar em unidades pré-escala
+        double available = availableDip / _settings.Scale;
+        // 14 padding/border + 32 artwork + 12 text margins. Cover always opens controls.
+        const double baseWidth = 58;
+        bool play = _settings.ShowPlay && CanControl(MediaControls.PlayPause);
+        double used = baseWidth + MinTextWidth + (play ? 34 : 0);
+        if (available < used) return false;
 
-        const double IconBtn = 28;            // 26 + margens
-        const double PlayBtn = 34;            // 30 + margens
-        const double BasePart = 16 + 34 + 15; // padding + capa + margens do texto
-
-        // O play deixou de ser obrigatório: quem só quer o mostrador de "a
-        // tocar agora" pode escondê-lo (pedido da comunidade)
-        double used = BasePart + MinTextWidth + (_settings.ShowPlay ? PlayBtn : 0);
-        if (avail < used)
-            return false;
-
-        bool prev = false, next = false, like = false, shuffle = false, repeat = false, volume = false;
-        Take(ref prev, _settings.ShowPrev);
-        Take(ref next, _settings.ShowNext);
-        Take(ref like, _settings.ShowLike);
-        Take(ref shuffle, _settings.ShowShuffle);
-        Take(ref repeat, _settings.ShowRepeat);
-        Take(ref volume, _settings.ShowVolume);
-
-        double text = Math.Max(MinTextWidth, Math.Min(MaxTextWidth, MinTextWidth + (avail - used)));
-
-        SetVis(PlayPauseButton, _settings.ShowPlay);
-        SetVis(PrevButton, prev);
-        SetVis(NextButton, next);
-        SetVis(LikeButton, like);
-        SetVis(ShuffleButton, shuffle);
-        SetVis(RepeatButton, repeat);
-        SetVis(VolumeButton, volume);
+        bool next = _settings.ShowNext && CanControl(MediaControls.Next) && used + 28 <= available;
+        if (next) used += 28;
+        bool more = used + 28 <= available;
+        if (more) used += 28;
+        SetVisible(PlayPauseButton, play);
+        SetVisible(NextButton, next);
+        SetVisible(MoreButton, more);
+        double text = Math.Clamp(MinTextWidth + available - used, MinTextWidth, MaxTextWidth);
         if (Math.Abs(TextStack.Width - text) > 1)
         {
             TextStack.Width = text;
             UpdateMarquee();
         }
         return true;
-
-        void Take(ref bool flag, bool wanted)
-        {
-            if (wanted && used + IconBtn <= avail)
-            {
-                flag = true;
-                used += IconBtn;
-            }
-        }
-
-        static void SetVis(UIElement el, bool show)
-        {
-            var v = show ? Visibility.Visible : Visibility.Collapsed;
-            if (el.Visibility != v) el.Visibility = v;
-        }
     }
 
     /// <summary>
@@ -926,26 +919,49 @@ public partial class MainWindow : Window
         long generation = unchecked(++_trackGeneration);
         try
         {
-            var procs = Process.GetProcessesByName("Spotify");
-            bool processAlive = procs.Length > 0;
-            foreach (var p in procs) p.Dispose();
+            var session = _media.SelectedSession;
+            bool isSimpMusic = MediaService.IsSimpMusicSource(session?.SourceAppUserModelId);
+            bool playerAvailable = isSimpMusic;
+            if (!isSimpMusic)
+            {
+                var procs = Process.GetProcessesByName("Spotify");
+                playerAvailable = procs.Length > 0;
+                foreach (var p in procs) p.Dispose();
+            }
 
             // As chamadas SMTC podem ficar penduradas para sempre numa sessão em
             // teardown (Spotify a fechar/reabrir) — sem timeout, a flag _refreshing
             // ficava presa e o widget congelava até reiniciar
             TrackInfo? track = null;
-            if (processAlive)
+            if (playerAvailable)
             {
-                try { track = await _media.GetTrackAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+                try { track = await _media.GetTrackAsync(session).WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException) { }
             }
-            if (_closed || generation != _trackGeneration) return;
+            if (_closed || generation != _trackGeneration || !ReferenceEquals(session, _media.SelectedSession)) return;
+
+            bool sessionChanged = !ReferenceEquals(session, _displayedSession);
+            if (sessionChanged)
+            {
+                CloseExpanded();
+                _displayedSession = session;
+                _lastTrackKey = "";
+                _artDirty = _uiaDirty = true;
+                _settleToken++;
+                _trackNullSince = _sessionLostAt = DateTime.MinValue;
+                _playToggledAt = _seekAt = _likedOptimisticAt = _shuffleToggledAt = DateTime.MinValue;
+                _uiaState = (null, ShuffleMode.Unknown, RepeatMode.Unknown);
+                _liked = null;
+                SetAlbumArt(null);
+            }
+
+            UpdatePlayerControls(isSimpMusic, track?.Controls ?? MediaControls.None);
 
             // Nas mudanças de faixa, a sessão/título ficam vazios por umas centenas
             // de ms — manter o estado atual no ecrã e re-verificar já, em vez de
             // piscar placeholders ou esconder o widget
             bool noData = track == null || string.IsNullOrWhiteSpace(track.Title);
-            if (processAlive && noData && _lastTrackKey.Length > 0)
+            if (playerAvailable && noData && _lastTrackKey.Length > 0)
             {
                 if (_trackNullSince == DateTime.MinValue)
                     _trackNullSince = DateTime.UtcNow;
@@ -962,23 +978,24 @@ public partial class MainWindow : Window
 
             // Perder a sessão com o processo ainda vivo (de forma persistente) =
             // fecho do Spotify em curso. Esconder, sem estados intermédios.
-            if (processAlive && track == null && _lastTrackKey.Length > 0)
+            if (playerAvailable && track == null && _lastTrackKey.Length > 0)
             {
                 _sessionLostAt = DateTime.UtcNow;
                 _lastTrackKey = "";
             }
-            bool closing = processAlive && track == null &&
+            bool closing = playerAvailable && track == null &&
                            DateTime.UtcNow - _sessionLostAt < TimeSpan.FromSeconds(6);
-            _spotifyPresent = processAlive && !closing;
+            _playerPresent = playerAvailable && !closing;
 
-            var launcherWanted = !_spotifyPresent && _settings.ShowLauncher
+            var launcherWanted = !_playerPresent && _settings.ShowLauncher
                 ? Visibility.Visible : Visibility.Collapsed;
-            var contentWanted = _spotifyPresent ? Visibility.Visible : Visibility.Collapsed;
+            var contentWanted = _playerPresent ? Visibility.Visible : Visibility.Collapsed;
             if (LauncherPanel.Visibility != launcherWanted) LauncherPanel.Visibility = launcherWanted;
             if (ContentPanel.Visibility != contentWanted) ContentPanel.Visibility = contentWanted;
 
-            if (!_spotifyPresent)
+            if (!_playerPresent)
             {
+                CloseExpanded();
                 _liked = null;
                 _duration = TimeSpan.Zero;
                 VolumePopup.IsOpen = false;
@@ -1016,7 +1033,7 @@ public partial class MainWindow : Window
 
             if (track == null || string.IsNullOrWhiteSpace(track.Title))
             {
-                TitleText.Text = "Spotify";
+                TitleText.Text = isSimpMusic ? "SimpMusic" : "Spotify";
                 ArtistText.Text = L.NothingPlaying;
                 SetPlayPauseIcon(false);
                 ShuffleIcon.Fill = DimWhite;
@@ -1039,63 +1056,83 @@ public partial class MainWindow : Window
             UpdateMarquee();
             SetPlayPauseIcon(_isPlayingUi);
 
-            // Estado real (favoritos + aleatório + repetição) da árvore de
-            // acessibilidade do Spotify; o SMTC serve de rede de segurança.
             string key = track.Title + "|" + track.Artist;
             bool keyChanged = key != _lastTrackKey;
-            if (keyChanged || _uiaDirty || DateTime.UtcNow - _lastUiaStateAt > TimeSpan.FromSeconds(5))
+            if (isSimpMusic)
             {
-                _uiaDirty = false;
-                var state = (Liked: (bool?)null, Shuffle: ShuffleMode.Unknown, Repeat: RepeatMode.Unknown, Fresh: false);
-                try { state = await Task.Run(() => _uia.GetState(track.Title)).WaitAsync(TimeSpan.FromSeconds(8)); }
-                catch (TimeoutException) { }
-                if (_closed || generation != _trackGeneration) return;
-                _lastStateFresh = state.Fresh;
-                // Grupo ainda da faixa anterior (zombie): não mostrar o tick antigo
-                _uiaState = (state.Fresh ? state.Liked : null, state.Shuffle, state.Repeat);
-                _lastUiaStateAt = DateTime.UtcNow;
+                ApplyShuffleVisual(track.IsShuffle switch
+                {
+                    true => ShuffleMode.On,
+                    false => ShuffleMode.Off,
+                    null => ShuffleMode.Unknown
+                });
+                ApplyRepeatVisual(track.Repeat switch
+                {
+                    MediaPlaybackAutoRepeatMode.None => RepeatMode.Off,
+                    MediaPlaybackAutoRepeatMode.List => RepeatMode.Context,
+                    MediaPlaybackAutoRepeatMode.Track => RepeatMode.Track,
+                    _ => RepeatMode.Unknown
+                });
             }
-            if (keyChanged)
-                _ = SettleStateAsync(); // re-ler até o Spotify renderizar a barra da faixa nova
-            var (liked, uiaMode, repeatMode) = _uiaState;
-            // Depois de adicionar aos favoritos, ignorar "não gostado" antigo — o
-            // texto do botão do Spotify pode demorar vários segundos a atualizar
-            if (liked == false && DateTime.UtcNow - _likedOptimisticAt < TimeSpan.FromSeconds(8))
-                liked = true;
-            _liked = liked;
-
-            ApplyRepeatVisual(repeatMode);
-
-            LikeIcon.Data = liked == true ? CheckCircleGeo : AddCircleGeo;
-            LikeIcon.Fill = liked == true ? SpotifyGreen : (liked == false ? Subdued : DimWhite);
-            // Honesto: com o Spotify minimizado não conseguimos confirmar o
-            // estado (null) — dizê-lo em vez de deixar o "+" parecer "não gostado"
-            LikeButton.ToolTip = liked == true ? L.TipLiked
-                               : liked == false ? L.TipLikeAdd
-                               : L.TipLikeUnknown;
-
-            ShuffleMode mode = uiaMode;
-            // A rede de segurança do SMTC atrasa-se vários segundos após um
-            // clique — sobrepor-se a uma leitura UIA fresca fazia o ícone
-            // piscar On→Off→On; janela de graça como no play/pause
-            if (DateTime.UtcNow - _shuffleToggledAt > TimeSpan.FromSeconds(4))
+            else
             {
-                if (track.IsShuffle == false && mode != ShuffleMode.Unknown)
-                    mode = ShuffleMode.Off;
-                else if (track.IsShuffle == true && mode is ShuffleMode.Off or ShuffleMode.Unknown)
-                    mode = ShuffleMode.On;
-            }
+                // Estado real (favoritos + aleatório + repetição) da árvore de
+                // acessibilidade do Spotify; o SMTC serve de rede de segurança.
+                if (keyChanged || _uiaDirty || DateTime.UtcNow - _lastUiaStateAt > TimeSpan.FromSeconds(5))
+                {
+                    _uiaDirty = false;
+                    var state = (Liked: (bool?)null, Shuffle: ShuffleMode.Unknown, Repeat: RepeatMode.Unknown, Fresh: false);
+                    try { state = await Task.Run(() => _uia.GetState(track.Title)).WaitAsync(TimeSpan.FromSeconds(8)); }
+                    catch (TimeoutException) { }
+                    if (_closed || generation != _trackGeneration || !ReferenceEquals(session, _media.SelectedSession)) return;
+                    _lastStateFresh = state.Fresh;
+                    // Grupo ainda da faixa anterior (zombie): não mostrar o tick antigo
+                    _uiaState = (state.Fresh ? state.Liked : null, state.Shuffle, state.Repeat);
+                    _lastUiaStateAt = DateTime.UtcNow;
+                }
+                if (keyChanged)
+                    _ = SettleStateAsync(); // re-ler até o Spotify renderizar a barra da faixa nova
+                var (liked, uiaMode, repeatMode) = _uiaState;
+                // Depois de adicionar aos favoritos, ignorar "não gostado" antigo — o
+                // texto do botão do Spotify pode demorar vários segundos a atualizar
+                if (liked == false && DateTime.UtcNow - _likedOptimisticAt < TimeSpan.FromSeconds(8))
+                    liked = true;
+                _liked = liked;
 
-            ApplyShuffleVisual(mode);
+                ApplyRepeatVisual(repeatMode);
+
+                LikeIcon.Data = liked == true ? CheckCircleGeo : AddCircleGeo;
+                LikeIcon.Fill = liked == true ? SpotifyGreen : (liked == false ? Subdued : DimWhite);
+                // Honesto: com o Spotify minimizado não conseguimos confirmar o
+                // estado (null) — dizê-lo em vez de deixar o "+" parecer "não gostado"
+                LikeButton.ToolTip = liked == true ? L.TipLiked
+                                   : liked == false ? L.TipLikeAdd
+                                   : L.TipLikeUnknown;
+
+                ShuffleMode mode = uiaMode;
+                // A rede de segurança do SMTC atrasa-se vários segundos após um
+                // clique — sobrepor-se a uma leitura UIA fresca fazia o ícone
+                // piscar On→Off→On; janela de graça como no play/pause
+                if (DateTime.UtcNow - _shuffleToggledAt > TimeSpan.FromSeconds(4))
+                {
+                    if (track.IsShuffle == false && mode != ShuffleMode.Unknown)
+                        mode = ShuffleMode.Off;
+                    else if (track.IsShuffle == true && mode is ShuffleMode.Off or ShuffleMode.Unknown)
+                        mode = ShuffleMode.On;
+                }
+
+                ApplyShuffleVisual(mode);
+
+            }
 
             if (keyChanged || _artDirty)
             {
                 _lastTrackKey = key;
                 _artDirty = false;
                 byte[]? bytes = null;
-                try { bytes = await _media.GetThumbnailAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+                try { bytes = await _media.GetThumbnailAsync(session).WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException) { }
-                if (_closed || generation != _trackGeneration) return;
+                if (_closed || generation != _trackGeneration || !ReferenceEquals(session, _media.SelectedSession)) return;
                 BitmapImage? art = null;
                 if (bytes != null)
                 {
@@ -1103,7 +1140,7 @@ public partial class MainWindow : Window
                     // de faixa — não podem rebentar o refresh inteiro
                     try { art = ToBitmap(bytes); } catch { }
                 }
-                if (_closed || generation != _trackGeneration) return;
+                if (_closed || generation != _trackGeneration || !ReferenceEquals(session, _media.SelectedSession)) return;
                 SetAlbumArt(art);
             }
         }
@@ -1183,8 +1220,12 @@ public partial class MainWindow : Window
     /// esquerda (a massa visual fica à esquerda) — compensação ótica de 1,5px.</summary>
     private void SetPlayPauseIcon(bool playing)
     {
+        bool changed = !ReferenceEquals(PlayPauseIcon.Data, playing ? PauseGeo : PlayGeo);
         PlayPauseIcon.Data = playing ? PauseGeo : PlayGeo;
         PlayPauseIcon.Margin = playing ? new Thickness(0) : new Thickness(1.5, 0, 0, 0);
+        if (changed && _motionEnabled != false)
+            PlayPauseIcon.BeginAnimation(OpacityProperty, new DoubleAnimation(0.4, 1, TimeSpan.FromMilliseconds(120))
+                { FillBehavior = FillBehavior.Stop });
     }
 
     private void ApplyShuffleVisual(ShuffleMode mode)
@@ -1222,12 +1263,14 @@ public partial class MainWindow : Window
     private async void RefreshTimeline()
     {
         if (_closed || _timelineRunning) return;
+        var session = _displayedSession;
+        if (!IsDisplayedSessionCurrent) return;
         _timelineRunning = true;
         (TimeSpan Position, TimeSpan Duration, bool IsPlaying, DateTime PositionAtUtc)? tlMaybe = null;
-        try { tlMaybe = await Task.Run(() => _media.GetTimeline()).WaitAsync(TimeSpan.FromSeconds(3)); }
+        try { tlMaybe = await Task.Run(() => _media.GetTimeline(session)).WaitAsync(TimeSpan.FromSeconds(3)); }
         catch (TimeoutException) { }
         finally { _timelineRunning = false; }
-        if (_closed) return;
+        if (_closed || !ReferenceEquals(session, _media.SelectedSession)) return;
         if (tlMaybe is not { } tl) return;
         // Depois de um seek, snapshots ANTERIORES ao salto ainda chegam durante
         // uns segundos — aplicá-los fazia a barra recuar e voltar a saltar
@@ -1246,6 +1289,8 @@ public partial class MainWindow : Window
 
     private async void PlayPause_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsDisplayedSessionCurrent || !CanControl(MediaControls.PlayPause)) return;
+        var session = _displayedSession;
         // Feedback imediato; leituras antigas são ignoradas por 2 s (grace) e
         // depois disso o estado real do SMTC volta a mandar
         _isPlayingUi = !_isPlayingUi;
@@ -1254,13 +1299,31 @@ public partial class MainWindow : Window
         if (!_isPlayingUi)
             _basePosition += DateTime.UtcNow - _basePositionAt; // congelar posição
         _basePositionAt = DateTime.UtcNow;
-        await _media.TogglePlayPauseAsync();
+        await _media.TogglePlayPauseAsync(session);
     }
-    private async void Next_Click(object sender, RoutedEventArgs e) => await _media.NextAsync();
-    private async void Prev_Click(object sender, RoutedEventArgs e) => await _media.PreviousAsync();
+    private async void Next_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsDisplayedSessionCurrent && CanControl(MediaControls.Next))
+            await _media.NextAsync(_displayedSession);
+    }
+
+    private async void Prev_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsDisplayedSessionCurrent && CanControl(MediaControls.Previous))
+            await _media.PreviousAsync(_displayedSession);
+    }
 
     private async void Shuffle_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsDisplayedSessionCurrent || !CanControl(MediaControls.Shuffle)) return;
+        var session = _displayedSession;
+        if (_isSimpMusic)
+        {
+            await _media.ToggleShuffleAsync(session);
+            await RefreshTrackAsync();
+            return;
+        }
+
         // Feedback imediato: cicla localmente; a leitura de estado corrige se preciso
         var next = _uiaState.Shuffle switch
         {
@@ -1278,7 +1341,7 @@ public partial class MainWindow : Window
 
         bool ok = await Task.Run(() => _uia.CycleShuffle());
         if (!ok)
-            await _media.ToggleShuffleAsync(); // sem janela do Spotify: só liga/desliga
+            await _media.ToggleShuffleAsync(session); // sem janela do Spotify: só liga/desliga
         await Task.Delay(400);
         _uiaDirty = true;
         await RefreshTrackAsync();
@@ -1286,6 +1349,15 @@ public partial class MainWindow : Window
 
     private async void Repeat_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsDisplayedSessionCurrent || !CanControl(MediaControls.Repeat)) return;
+        var session = _displayedSession;
+        if (_isSimpMusic)
+        {
+            await _media.CycleRepeatAsync(session);
+            await RefreshTrackAsync();
+            return;
+        }
+
         // Feedback imediato: cicla localmente; a leitura de estado corrige se preciso
         var next = _uiaState.Repeat switch
         {
@@ -1302,7 +1374,7 @@ public partial class MainWindow : Window
 
         bool ok = await Task.Run(() => _uia.CycleRepeat());
         if (!ok)
-            await _media.CycleRepeatAsync(); // sem janela do Spotify: tentar via SMTC
+            await _media.CycleRepeatAsync(session); // sem janela do Spotify: tentar via SMTC
         await Task.Delay(400);
         _uiaDirty = true;
         await RefreshTrackAsync();
@@ -1310,7 +1382,8 @@ public partial class MainWindow : Window
 
     private async void Like_Click(object sender, RoutedEventArgs e)
     {
-        if (_liked == true) return; // já está nos favoritos
+        if (_isSimpMusic || !IsDisplayedSessionCurrent || _liked == true) return; // já está nos favoritos
+        var session = _displayedSession;
 
         // Feedback imediato; se falhar, a leitura de estado seguinte corrige
         _liked = true;
@@ -1320,7 +1393,7 @@ public partial class MainWindow : Window
         LikeButton.ToolTip = L.TipLiked;
 
         bool ok = await Task.Run(() => _uia.AddToFavorites());
-        if (!ok)
+        if (!ok && IsDisplayedSessionCurrent && ReferenceEquals(session, _displayedSession))
             await Task.Run(() => _uia.AddToFavoritesByClick()); // recurso raro: sem verbo disponível
 
         // O texto do botão do Spotify demora segundos a refletir a adição —
@@ -1355,7 +1428,7 @@ public partial class MainWindow : Window
         for (int i = 0; i < 12; i++) // máx. ~6 s
         {
             await Task.Delay(500);
-            if (_closed || token != _settleToken) return;
+            if (_closed || _isSimpMusic || !IsDisplayedSessionCurrent || token != _settleToken) return;
             _uiaDirty = true;
             await RefreshTrackAsync();
             if (_closed || token != _settleToken || _lastStateFresh) return;
@@ -1364,6 +1437,9 @@ public partial class MainWindow : Window
 
     private async void Volume_Click(object sender, RoutedEventArgs e)
     {
+        if (!IsDisplayedSessionCurrent) return;
+        var session = _displayedSession;
+        bool simpMusic = _isSimpMusic;
         if (VolumePopup.IsOpen)
         {
             VolumePopup.IsOpen = false;
@@ -1374,13 +1450,17 @@ public partial class MainWindow : Window
                     // ajuste do utilizador com o volume antigo ao completar
 
         CaptureForeground();
+        int expandedGeneration = _expandedGeneration;
         _volLoading = true;
         try
         {
             // O recurso CoreAudio também fora da thread de UI — é uma RPC ao
             // serviço de áudio e chegava a bloquear a interface
-            double? current = await Task.Run(() => _uia.GetVolume() ?? SpotifyVolume.GetVolume());
-            if (_closed || Visibility != Visibility.Visible)
+            double? current = await Task.Run(() => simpMusic
+                ? SpotifyVolume.GetVolume("SimpMusic")
+                : _uia.GetVolume() ?? SpotifyVolume.GetVolume());
+            if (_closed || Visibility != Visibility.Visible || expandedGeneration != _expandedGeneration ||
+                !ReferenceEquals(session, _media.SelectedSession) || (simpMusic && current == null))
                 return; // o widget escondeu-se durante a leitura: não abrir
                         // um popup órfão a flutuar sobre a barra
             // Atribuir COM _volLoading ainda ativo: senão o ValueChanged ecoava
@@ -1402,7 +1482,7 @@ public partial class MainWindow : Window
         ApplyVolume(e.NewValue / 100.0);
     }
 
-    private double? _pendingVolume;
+    private (GlobalSystemMediaTransportControlsSession? Session, bool SimpMusic, double Fraction)? _pendingVolume;
     private bool _volApplying;
 
     /// <summary>
@@ -1412,18 +1492,22 @@ public partial class MainWindow : Window
     /// </summary>
     private async void ApplyVolume(double fraction)
     {
-        _pendingVolume = fraction;
+        if (!IsDisplayedSessionCurrent) return;
+        _pendingVolume = (_displayedSession, _isSimpMusic, fraction);
         if (_volApplying) return;
         _volApplying = true;
         try
         {
-            while (_pendingVolume is double v)
+            while (_pendingVolume is { } request)
             {
                 _pendingVolume = null;
+                if (_closed || !ReferenceEquals(request.Session, _media.SelectedSession)) continue;
                 await Task.Run(() =>
                 {
-                    if (!_uia.SetVolume(v))
-                        SpotifyVolume.SetVolume((float)v);
+                    if (request.SimpMusic)
+                        SpotifyVolume.SetVolume((float)request.Fraction, "SimpMusic");
+                    else if (!_uia.SetVolume(request.Fraction))
+                        SpotifyVolume.SetVolume((float)request.Fraction);
                 });
             }
         }
@@ -1433,7 +1517,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void VolumePopup_MouseLeave(object sender, MouseEventArgs e) => VolumePopup.IsOpen = false;
+    private void VolumePopup_MouseLeave(object sender, MouseEventArgs e) => CloseVolumeAfterPointerExit();
 
     private int _wheelAccum;
 
@@ -1482,34 +1566,71 @@ public partial class MainWindow : Window
     /// numa barra clara os textos/ícones têm de escurecer.</summary>
     private void ApplyThemeIfChanged()
     {
+        ApplyMotionPreference(SystemParameters.ClientAreaAnimation);
         bool light = IsSystemLightTheme();
         if (_lightTheme == light) return;
         _lightTheme = light;
+        ApplyTheme(light);
 
-        Subdued = new SolidColorBrush(light ? Color.FromRgb(0x5C, 0x5C, 0x5C) : Color.FromRgb(0x9E, 0x9E, 0x9E));
-        DimWhite = new SolidColorBrush(light ? Color.FromArgb(0x40, 0x00, 0x00, 0x00) : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
-        _progressFillNormal = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
+        _marqueeKey = "";
+        _ = RefreshTrackAsync();
+    }
 
-        TitleText.Foreground = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
-        ArtistText.Foreground = Subdued;
-        LauncherText.Foreground = Subdued;
-        PrevIcon.Fill = Subdued;
-        NextIcon.Fill = Subdued;
-        VolumeIcon.Fill = Subdued;
-        ArtPlaceholder.Foreground = DimWhite;
-        ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
+    // Shared by the real system-theme path and isolated visual verification.
+    internal void ApplyTheme(bool light)
+    {
+        Brush previousSubdued = Subdued;
+        Brush previousDim = DimWhite;
+        Resources.MergedDictionaries[0] = new ResourceDictionary
+        {
+            Source = new Uri($"/SpotifyTaskbarWidget;component/Themes/{(light ? "Light" : "Dark")}.xaml", UriKind.Relative)
+        };
+        Subdued = (Brush)FindResource("SecondaryBrush");
+        DimWhite = (Brush)FindResource("MutedBrush");
+        _progressFillNormal = (Brush)FindResource("PrimaryBrush");
+
         if (!ProgressTrack.IsMouseOver)
             ProgressFill.Background = _progressFillNormal;
 
-        // Botão play: círculo branco no escuro, preto no claro (como o Spotify)
-        PlayPauseButton.Background = light ? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A)) : Brushes.White;
-        PlayPauseIcon.Fill = light ? Brushes.White : new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
-        VolumePopupIcon.Fill = Subdued;
-        VolumePopupBorder.Background = new SolidColorBrush(light ? Color.FromRgb(0xFB, 0xFB, 0xFB) : Color.FromRgb(0x24, 0x24, 0x24));
-        VolumePopupBorder.BorderBrush = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
+        // Retint local state brushes without changing optimistic/SMTC-derived states or tooltips.
+        foreach (var icon in new[] { LikeIcon, ShuffleIcon, RepeatIcon })
+        {
+            if (ReferenceEquals(icon.Fill, previousSubdued)) icon.Fill = Subdued;
+            else if (ReferenceEquals(icon.Fill, previousDim)) icon.Fill = DimWhite;
+        }
+        if (_motionEnabled == true && _uiReady)
+            GlassHover.BeginAnimation(OpacityProperty, new DoubleAnimation(0.7, 0, TimeSpan.FromMilliseconds(180))
+                { FillBehavior = FillBehavior.Stop });
+    }
 
-        _marqueeKey = ""; // sem efeito no texto, mas força refresh coerente
-        _ = RefreshTrackAsync();
+    private bool? _motionEnabled;
+
+    internal void ApplyMotionPreference(bool enabled)
+    {
+        if (_motionEnabled == enabled) return;
+        _motionEnabled = enabled;
+        var duration = new Duration(TimeSpan.FromMilliseconds(enabled ? 140 : 0));
+        foreach (var button in new[] { LikeButton, ShuffleButton, PrevButton, PlayPauseButton, NextButton, RepeatButton,
+                     VolumeButton, MoreButton, ArtworkDetailsButton, ExpandedPlayButton, ExpandedNextButton, CloseDetailsButton, OpenPlayerButton })
+        {
+            button.ApplyTemplate();
+            if (VisualTreeHelper.GetChildrenCount(button) == 0) continue;
+            var templateRoot = (FrameworkElement)VisualTreeHelper.GetChild(button, 0);
+            foreach (VisualStateGroup group in VisualStateManager.GetVisualStateGroups(templateRoot))
+                foreach (VisualTransition transition in group.Transitions)
+                    transition.GeneratedDuration = duration;
+        }
+        Resources["FlyoutAnimation"] = enabled
+            ? System.Windows.Controls.Primitives.PopupAnimation.Fade
+            : System.Windows.Controls.Primitives.PopupAnimation.None;
+        if (!enabled)
+        {
+            GlassHover.BeginAnimation(OpacityProperty, null);
+            PlayPauseIcon.BeginAnimation(OpacityProperty, null);
+            ExpandedSurface.BeginAnimation(OpacityProperty, null);
+            if (ExpandedSurface.RenderTransform is TranslateTransform translation)
+                translation.BeginAnimation(TranslateTransform.YProperty, null);
+        }
     }
 
     // ---------- Marquee do título ----------
@@ -1576,10 +1697,11 @@ public partial class MainWindow : Window
     /// a posição é interpolada com o relógio local enquanto está a tocar.</summary>
     private void UpdateProgressUi()
     {
-        bool show = _settings.ShowProgress && _spotifyPresent && _duration > TimeSpan.Zero;
+        bool show = _settings.ShowProgress && _playerPresent && _duration > TimeSpan.Zero;
         var wanted = show ? Visibility.Visible : Visibility.Collapsed;
         if (ProgressTrack.Visibility != wanted)
             ProgressTrack.Visibility = wanted;
+        TimelineLabels.Visibility = wanted;
         if (!show) return;
 
         TimeSpan pos = _basePosition;
@@ -1588,12 +1710,14 @@ public partial class MainWindow : Window
 
         double fraction = Math.Clamp(pos.TotalMilliseconds / _duration.TotalMilliseconds, 0, 1);
         ProgressFill.Width = fraction * ProgressTrack.ActualWidth;
+        PositionText.Text = FormatTimeline(TimeSpan.FromMilliseconds(Math.Clamp(pos.TotalMilliseconds, 0, _duration.TotalMilliseconds)));
+        DurationText.Text = FormatTimeline(_duration);
     }
 
     private async void Progress_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_moveMode) return; // em modo mover, o arrasto tem prioridade
-        e.Handled = true;      // não tratar como clique para abrir o Spotify
+        e.Handled = true;
+        if (_moveMode || !IsDisplayedSessionCurrent || !CanControl(MediaControls.Seek)) return;      // não tratar como clique para abrir o Spotify
 
         if (_duration <= TimeSpan.Zero || ProgressTrack.ActualWidth <= 0) return;
         double fraction = Math.Clamp(e.GetPosition(ProgressTrack).X / ProgressTrack.ActualWidth, 0, 1);
@@ -1606,7 +1730,7 @@ public partial class MainWindow : Window
         _basePositionAt = DateTime.UtcNow;
         UpdateProgressUi();
 
-        await _media.SeekAsync(target);
+        await _media.SeekAsync(_displayedSession, target);
     }
 
     private void Progress_MouseEnter(object sender, MouseEventArgs e) => ProgressFill.Background = SpotifyGreen;
@@ -1630,7 +1754,8 @@ public partial class MainWindow : Window
     private void VolumePopup_Closed(object sender, EventArgs e)
     {
         _volPopupWatchdog?.Stop();
-        RestoreForeground();
+        if (ExpandedPopup.IsOpen) ExpandedPopup.StaysOpen = false;
+        else RestoreForeground();
     }
 
     private DispatcherTimer? _volPopupWatchdog;
@@ -1644,6 +1769,7 @@ public partial class MainWindow : Window
 
     private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
+        CloseExpanded();
         CaptureForeground();
         RebuildMonitorMenu();
         // Estado global — outra janela (ou o Gestor de Tarefas) pode tê-lo mudado
@@ -1714,6 +1840,7 @@ public partial class MainWindow : Window
 
     private void CaptureForeground()
     {
+        if (_fgBeforeUi != IntPtr.Zero && (ExpandedPopup.IsOpen || VolumePopup.IsOpen)) return;
         IntPtr fg = Interop.GetForegroundWindow();
         _fgBeforeUi = fg == _hwnd ? IntPtr.Zero : fg;
     }
@@ -1779,7 +1906,7 @@ public partial class MainWindow : Window
         else if (_pressed)
         {
             _pressed = false;
-            SpotifyActions.OpenSpotifyWindow();
+            OpenSelectedPlayer();
         }
     }
 
@@ -1787,6 +1914,7 @@ public partial class MainWindow : Window
 
     private void MoveMode_Click(object sender, RoutedEventArgs e)
     {
+        CloseExpanded();
         _moveMode = MoveMenu.IsChecked;
         Root.Cursor = _moveMode ? Cursors.SizeAll : Cursors.Hand;
     }
@@ -2061,6 +2189,8 @@ public partial class MainWindow : Window
     {
         base.OnClosed(e);
         _closed = true; // trava a continuação do OnLoaded se ainda estiver no await
+        CloseExpanded();
+        VolumePopup.Opened -= AdaptiveVolumeOpened;
         _positionTimer.Stop();
         _trackTimer.Stop();
         _volPopupWatchdog?.Stop();
